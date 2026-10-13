@@ -43,15 +43,22 @@ rustup target add wasm32-unknown-unknown
 rustup component add rustfmt clippy
 ```
 
-`wasm-bindgen-cli` dipasang **setelah** kerangka kode ada di repo, karena versinya
-harus sama persis dengan yang tercatat di `Cargo.lock` (lihat ADR-0003). Perintahnya
-akan berbentuk seperti ini (nomor versi diisi nanti):
+Lalu pasang `wasm-bindgen-cli`. Versinya harus sama persis dengan yang tercatat
+di `Cargo.lock` (lihat ADR-0003). Saat ini versinya **0.2.129**:
 
 ```powershell
-cargo install wasm-bindgen-cli --version <VERSI-DARI-Cargo.lock> --locked
+cargo install wasm-bindgen-cli --version 0.2.129 --locked
 ```
 
-**Cek:** `rustup target list --installed` memuat `wasm32-unknown-unknown`.
+Compile ini butuh beberapa menit. Kalau suatu saat versi di `Cargo.lock` berubah,
+`tools\build-web.ps1` akan memberi tahu dan menampilkan perintah pemasangan yang baru.
+
+Catatan: di dalam folder repo, `rustup` membaca `rust-toolchain.toml` dan otomatis
+memasang Rust **1.97.0** beserta target yang dibutuhkan saat perintah `cargo`
+pertama dijalankan. Unduhan tambahan ini normal.
+
+**Cek:** `rustup target list --installed` memuat `wasm32-unknown-unknown`,
+dan `wasm-bindgen --version` menampilkan `wasm-bindgen 0.2.129`.
 
 ## 4. Editor: VS Code + rust-analyzer
 
@@ -76,16 +83,26 @@ cd mxm-gameboy
 cargo test
 ```
 
-**Cek:** keluaran diakhiri `test result: ok`.
+**Cek:** keluaran diakhiri `test result: ok`. Lalu:
+
+```powershell
+cargo run -p gb-headless
+```
+
+**Cek:** muncul `Halo dari emulator (gb-core 0.1.0)`.
 
 ## 7. Coba di HP lewat Wi-Fi rumah (opsional — GitHub Pages juga bisa)
 
-1. Build web (skrip akan tersedia setelah kerangka kode ada), lalu:
+1. Build web, lalu jalankan server lokal:
 
 ```powershell
+.\tools\build-web.ps1
 cd web
 python -m http.server 8000
 ```
+
+   Kalau PowerShell menolak menjalankan skrip ("running scripts is disabled"),
+   jalankan sekali: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 
 2. Cari IP laptop: `ipconfig` → baris **IPv4 Address** di adapter Wi-Fi (mis. `192.168.1.23`).
 3. Di HP (Wi-Fi yang sama), buka `http://192.168.1.23:8000`.

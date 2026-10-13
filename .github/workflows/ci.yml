@@ -1,0 +1,124 @@
+# Satu workflow untuk cek kode dan deploy halaman (ADR-0007).
+#
+#   check ──┐
+#           ├──▶ deploy   (hanya push ke main, setelah keduanya hijau)
+#   web   ──┘
+#
+# Di PR: check + web jalan (beberapa menit). Tidak ada deploy.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Push baru ke PR yang sama membatalkan run lama: hemat menit.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Harus sama dengan versi wasm-bindgen di Cargo.toml/Cargo.lock (ADR-0003).
+  # tools/build-web.sh juga memeriksa ini dan gagal kalau berbeda.
+  WASM_BINDGEN_VERSION: 0.2.129
+
+jobs:
+  check:
+    name: Rust · fmt, clippy, test, no_std
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # rustup membaca rust-toolchain.toml dan memasang Rust 1.97.0
+      # beserta komponen dan target yang tercantum.
+      - name: Pasang toolchain dari rust-toolchain.toml
+        run: rustup toolchain install && rustup show active-toolchain
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-check-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+
+      - name: Format (rustfmt)
+        run: cargo fmt --all --check
+
+      - name: Lint (clippy, peringatan = error)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Unit test
+        run: cargo test --workspace
+
+      # Bukti ADR-0002: gb-core ter-build untuk mikrokontroler ARM tanpa OS.
+      # Kalau ada yang memakai std di core, langkah ini (dan build biasa) gagal.
+      - name: gb-core tanpa std (thumbv7em-none-eabihf)
+        run: cargo build -p gb-core --target thumbv7em-none-eabihf
+
+      - name: Smoke test gb-headless
+        run: cargo run -p gb-headless
+
+  web:
+    name: Web · build WebAssembly
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pasang toolchain dari rust-toolchain.toml
+        run: rustup toolchain install && rustup show active-toolchain
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-web-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+
+      # Compile wasm-bindgen-cli butuh beberapa menit, jadi binernya di-cache
+      # per versi. Run berikutnya cukup memulihkan cache.
+      - name: Cache wasm-bindgen-cli
+        id: wasm-bindgen-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/wasm-bindgen
+          key: wasm-bindgen-cli-${{ runner.os }}-${{ env.WASM_BINDGEN_VERSION }}
+
+      - name: Pasang wasm-bindgen-cli ${{ env.WASM_BINDGEN_VERSION }}
+        if: steps.wasm-bindgen-cache.outputs.cache-hit != 'true'
+        run: cargo install wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION" --locked
+
+      - name: Build web (tools/build-web.sh)
+        run: ./tools/build-web.sh
+
+      # Hanya di main: kemas folder web/ untuk GitHub Pages.
+      - name: Kemas untuk GitHub Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+  deploy:
+    name: Deploy · GitHub Pages
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [check, web]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

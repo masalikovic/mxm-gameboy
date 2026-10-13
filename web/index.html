@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f380f">
+  <title>mxm-gameboy</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- main.js memuat file .wasm hasil build gb-web (lihat tools/build-web.sh). -->
+  <script type="module" src="main.js"></script>
+</head>
+<body>
+  <main class="console">
+    <p class="brand">MXM · GAME BOY</p>
+    <section class="bezel" aria-label="Layar emulator">
+      <div class="screen">
+        <p id="screen-text" class="screen-text">Memuat…</p>
+      </div>
+    </section>
+    <p id="status" class="status" role="status">Menyiapkan WebAssembly</p>
+    <noscript><p class="status">Halaman ini butuh JavaScript untuk menjalankan emulator.</p></noscript>
+    <p class="note">
+      Tahap M0: teks di layar dibuat oleh <code>gb-core</code> (Rust) dan dikirim
+      ke halaman ini lewat WebAssembly.
+      <a href="https://github.com/Masalikovic/mxm-gameboy">Kode sumber</a>
+    </p>
+  </main>
+</body>
+</html>

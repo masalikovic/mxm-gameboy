@@ -29,6 +29,11 @@ wasm-bindgen --target web --no-typescript --out-dir dist/pkg `
     target/wasm32-unknown-unknown/release/gb_web.wasm
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+# 4b. ROM homebrew kita (kalau sudah dibuild) ikut disajikan sebagai demo
+#     (ADR-0006). Tidak ada ROM pihak ketiga yang pernah disalin ke sini.
+New-Item -ItemType Directory -Force dist/roms | Out-Null
+Get-ChildItem homebrew/*/build/*.gb -ErrorAction SilentlyContinue | Copy-Item -Destination dist/roms
+
 # 5. Cache busting (ADR-0009): ganti __BUILD__ dengan versi build.
 $build = (git rev-parse --short=12 HEAD 2>$null)
 if (-not $build) { $build = 'lokal' }

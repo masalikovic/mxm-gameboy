@@ -54,21 +54,53 @@ body {
 }
 
 .screen {
+  position: relative;
   aspect-ratio: 160 / 144; /* resolusi asli Game Boy */
-  display: grid;
-  place-items: center;
-  padding: 12px;
   background: var(--lcd-3);
   border: 3px solid var(--lcd-1);
 }
 
+.screen canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* Piksel tetap tajam saat diperbesar, seperti layar asli. */
+  image-rendering: pixelated;
+}
+
 .screen-text {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
   margin: 0;
+  padding: 12px;
   color: var(--lcd-0);
+  background: var(--lcd-3);
   font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-  font-size: clamp(16px, 5vw, 22px);
+  font-size: clamp(14px, 4vw, 18px);
   font-weight: 700;
   text-align: center;
+}
+
+.screen-text[hidden] { display: none; }
+
+.rom-picker {
+  display: inline-block;
+  margin: 14px 0 0;
+  padding: 8px 12px;
+  border: 1px solid var(--orange);
+  border-radius: 8px;
+  color: var(--orange);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.rom-picker input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
 }
 
 .status {

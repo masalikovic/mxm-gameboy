@@ -15,27 +15,28 @@
 //! FFFF       saklar interrupt (IE)
 //! ```
 //!
-//! Komponen yang belum dibangun (PPU, suara) untuk sementara hanya
+//! Komponen yang belum dibangun (suara, tombol) untuk sementara hanya
 //! menyimpan nilai yang ditulis. Pengecualiannya dicatat di
 //! [`SystemBus::read`].
 //!
 //! ## Waktu (ADR-0011)
 //!
 //! CPU menjalankan satu instruksi utuh, lalu [`GameBoy::step`] memajukan
-//! komponen lain (sekarang: timer) sebanyak siklus yang dipakai instruksi
+//! komponen lain (timer dan PPU) sebanyak siklus yang dipakai instruksi
 //! itu. Komponen yang ingin menyela CPU menyalakan bitnya di register IF.
 
 use alloc::boxed::Box;
 
 use crate::bus::Bus;
 use crate::cpu::{Cpu, CpuError};
+use crate::ppu::Ppu;
 use crate::timer::Timer;
 
 /// Alamat register serial: byte data (SB) dan kontrol (SC).
 const SB: u16 = 0xFF01;
 const SC: u16 = 0xFF02;
-/// Alamat register LY: baris layar yang sedang digambar.
-const LY: u16 = 0xFF44;
+/// Alamat register DMA: salin 160 byte ke OAM.
+const DMA: u16 = 0xFF46;
 /// Alamat register IF: interrupt yang diminta.
 const IF: u16 = 0xFF0F;
 /// Bit interrupt timer di IF.
@@ -44,13 +45,12 @@ const TIMER_INTERRUPT: u8 = 0b0000_0100;
 /// Bus memori lengkap sebuah Game Boy DMG.
 pub struct SystemBus {
     rom: Box<[u8]>,
-    vram: [u8; 0x2000],
     wram: [u8; 0x2000],
-    oam: [u8; 0xA0],
     io: [u8; 0x80],
     hram: [u8; 0x7F],
     ie: u8,
     timer: Timer,
+    ppu: Ppu,
     serial_out: Option<u8>,
 }
 
@@ -60,13 +60,12 @@ impl SystemBus {
     pub fn new(rom: Box<[u8]>) -> Self {
         Self {
             rom,
-            vram: [0; 0x2000],
             wram: [0; 0x2000],
-            oam: [0; 0xA0],
             io: [0; 0x80],
             hram: [0; 0x7F],
             ie: 0,
             timer: Timer::default(),
+            ppu: Ppu::new(),
             serial_out: None,
         }
     }
@@ -80,10 +79,33 @@ impl SystemBus {
         self.serial_out.take()
     }
 
+    /// PPU (layar), untuk membaca framebuffer.
+    #[must_use]
+    pub const fn ppu(&self) -> &Ppu {
+        &self.ppu
+    }
+
+    /// PPU yang bisa diubah, misalnya untuk mengambil tanda frame selesai.
+    pub const fn ppu_mut(&mut self) -> &mut Ppu {
+        &mut self.ppu
+    }
+
     /// Memajukan komponen di balik bus sebanyak `cycles` T-cycle.
     pub fn tick(&mut self, cycles: u8) {
         if self.timer.tick(cycles) {
             self.request_interrupt(TIMER_INTERRUPT);
+        }
+        let ppu_interrupts = self.ppu.tick(cycles);
+        self.request_interrupt(ppu_interrupts);
+    }
+
+    /// OAM DMA: salin 160 byte dari `page` × 0x100 ke OAM (data sprite).
+    /// Di hardware asli butuh 640 siklus; di sini seketika (ADR-0012).
+    fn oam_dma(&mut self, page: u8) {
+        let source = u16::from(page) << 8;
+        for offset in 0..0xA0 {
+            let value = self.read(source + offset);
+            self.ppu.write_oam(0xFE00 + offset, value);
         }
     }
 
@@ -98,15 +120,13 @@ impl Bus for SystemBus {
         let a = usize::from(address);
         match address {
             0x0000..=0x7FFF => self.rom.get(a).copied().unwrap_or(0xFF),
-            0x8000..=0x9FFF => self.vram[a - 0x8000],
+            0x8000..=0x9FFF => self.ppu.read_vram(address),
             // Tidak ada RAM cartridge (M6) dan area FEA0–FEFF tidak terpakai.
             0xA000..=0xBFFF | 0xFEA0..=0xFEFF => 0xFF,
             0xC000..=0xDFFF => self.wram[a - 0xC000],
             0xE000..=0xFDFF => self.wram[a - 0xE000],
-            0xFE00..=0xFE9F => self.oam[a - 0xFE00],
-            // Sementara, sampai PPU ada (M4): LY selalu 0x90 (baris 144,
-            // awal VBlank). Program yang menunggu VBlank tidak macet.
-            LY => 0x90,
+            0xFE00..=0xFE9F => self.ppu.read_oam(address),
+            0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.read_register(address),
             0xFF04..=0xFF07 => self.timer.read(address),
             // Bit 7–5 IF tidak dipakai dan terbaca 1.
             IF => self.io[a - 0xFF00] | 0xE0,
@@ -122,10 +142,15 @@ impl Bus for SystemBus {
             // Tulisan ke area ROM adalah perintah ke chip MBC (ganti bank).
             // ROM 32 KiB tidak butuh itu; MBC menyusul di M6.
             0x0000..=0x7FFF | 0xA000..=0xBFFF | 0xFEA0..=0xFEFF => {}
-            0x8000..=0x9FFF => self.vram[a - 0x8000] = value,
+            0x8000..=0x9FFF => self.ppu.write_vram(address, value),
             0xC000..=0xDFFF => self.wram[a - 0xC000] = value,
             0xE000..=0xFDFF => self.wram[a - 0xE000] = value,
-            0xFE00..=0xFE9F => self.oam[a - 0xFE00] = value,
+            0xFE00..=0xFE9F => self.ppu.write_oam(address, value),
+            0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.write_register(address, value),
+            DMA => {
+                self.io[a - 0xFF00] = value;
+                self.oam_dma(value);
+            }
             // SC = 0x81: "kirim byte SB sekarang, pakai jam internal".
             // Transfer dianggap langsung selesai: byte ditampung, bit 7 SC
             // dimatikan, dan SB terisi 0xFF (tidak ada Game Boy di ujung kabel).
@@ -174,6 +199,33 @@ impl GameBoy {
         let cycles = self.cpu.step(&mut self.bus)?;
         self.bus.tick(cycles);
         Ok(cycles)
+    }
+
+    /// Menjalankan instruksi sampai satu frame selesai digambar (awal
+    /// V-blank). Kalau LCD mati, berhenti setelah waktu satu frame
+    /// (70.224 siklus) supaya pemanggil tidak menunggu selamanya.
+    ///
+    /// # Errors
+    ///
+    /// [`CpuError`] kalau CPU bertemu opcode yang belum ditulis.
+    pub fn run_frame(&mut self) -> Result<(), CpuError> {
+        let mut cycles: u32 = 0;
+        while cycles < 70_224 * 2 {
+            cycles += u32::from(self.step()?);
+            if self.bus.ppu_mut().take_frame_ready() {
+                return Ok(());
+            }
+            if !self.bus.ppu().lcd_enabled() && cycles >= 70_224 {
+                return Ok(());
+            }
+        }
+        Ok(())
+    }
+
+    /// Layar terakhir: 160×144 tingkat kegelapan 0 (terang) – 3 (gelap).
+    #[must_use]
+    pub fn framebuffer(&self) -> &[u8] {
+        self.bus.ppu().framebuffer()
     }
 }
 
@@ -291,6 +343,37 @@ mod tests {
         assert_eq!(gb.cpu.regs.b, 1, "penangan timer dijalankan sekali");
         assert_eq!(gb.cpu.regs.c, 1, "CPU bangun dari HALT dan lanjut");
         assert!(!gb.cpu.is_halted());
+    }
+
+    #[test]
+    fn oam_dma_copies_160_bytes() {
+        let mut bus = bus();
+        for i in 0..0xA0u16 {
+            bus.write(0xC100 + i, u8::try_from(i).unwrap_or(0));
+        }
+        bus.write(0xFF46, 0xC1); // salin dari 0xC100
+        assert_eq!(bus.read(0xFE00), 0x00);
+        assert_eq!(bus.read(0xFE9F), 0x9F);
+    }
+
+    #[test]
+    fn ly_is_real_now() {
+        // Stub M2 (LY selalu 0x90) sudah diganti PPU: LY mulai dari 0 dan naik.
+        let mut bus = bus();
+        assert_eq!(bus.read(0xFF44), 0);
+        for _ in 0..(456 / 4) {
+            bus.tick(4);
+        }
+        assert_eq!(bus.read(0xFF44), 1);
+    }
+
+    #[test]
+    fn vblank_interrupt_reaches_if() {
+        let mut bus = bus();
+        for _ in 0..(144 * 456 / 4) {
+            bus.tick(4);
+        }
+        assert_eq!(bus.read(0xFF0F) & 0b1, 0b1);
     }
 
     #[test]

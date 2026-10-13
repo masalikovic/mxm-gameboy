@@ -15,6 +15,7 @@
 //! - [`bus`]: cara CPU membaca dan menulis memori (ADR-0010).
 //! - [`cpu`]: CPU SM83, dibangun instruksi demi instruksi di M1–M2.
 //! - [`machine`]: [`machine::GameBoy`], yaitu CPU + bus memori lengkap.
+//! - [`ppu`]: chip layar: mode LCD, `LY`, background, framebuffer 160×144.
 //! - [`timer`]: timer DMG (`DIV`, `TIMA`, `TMA`, `TAC`).
 
 #![no_std]
@@ -25,6 +26,7 @@ extern crate alloc;
 pub mod bus;
 pub mod cpu;
 pub mod machine;
+pub mod ppu;
 pub mod timer;
 
 /// Versi `gb-core`, diambil dari `Cargo.toml` saat compile.

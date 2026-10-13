@@ -10,13 +10,19 @@ import init, { greeting, coreVersion } from './pkg/gb_web.js?v=__BUILD__';
 
 const wasmUrl = new URL('./pkg/gb_web_bg.wasm?v=__BUILD__', import.meta.url);
 
+// Versi build yang sedang tampil, supaya mudah dicek di HP tanpa membuka
+// kode sumber. Contoh: "14bd9ac" (hash commit), atau "14bd9ac+lokal" kalau
+// dibuild dengan perubahan yang belum di-commit.
+const [commit, localStamp] = '__BUILD__'.split('-');
+const buildLabel = commit.slice(0, 7) + (localStamp ? '+lokal' : '');
+
 const screenText = document.getElementById('screen-text');
 const status = document.getElementById('status');
 
 try {
   await init({ module_or_path: wasmUrl }); // mengunduh dan menyiapkan .wasm
   screenText.textContent = greeting();
-  status.textContent = `gb-core ${coreVersion()} · WebAssembly aktif`;
+  status.textContent = `gb-core ${coreVersion()} · build ${buildLabel} · WebAssembly aktif`;
 } catch (error) {
   screenText.textContent = 'Gagal memuat emulator';
   status.textContent = `Error: ${error.message ?? error}`;

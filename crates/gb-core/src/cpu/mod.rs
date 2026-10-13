@@ -354,6 +354,9 @@ impl Cpu {
                 12
             }
 
+            // Prefix CB: byte berikutnya adalah opcode dari tabel kedua.
+            0xCB => self.execute_cb(bus),
+
             // LD SP,HL.
             0xF9 => {
                 self.regs.sp = self.regs.hl();
@@ -585,20 +588,10 @@ impl Cpu {
         let a = self.regs.a;
         let carry = self.regs.flag(Flag::Carry);
         if op < 4 {
-            // Rotasi: bit yang "jatuh" dari ujung masuk ke flag C.
-            // RLCA/RRCA memutar 8 bit; RLA/RRA memutar 9 bit lewat C.
-            let (result, out) = match op {
-                0 => (a.rotate_left(1), a >> 7),
-                1 => (a.rotate_right(1), a & 1),
-                2 => ((a << 1) | u8::from(carry), a >> 7),
-                _ => ((a >> 1) | (u8::from(carry) << 7), a & 1),
-            };
-            self.regs.a = result;
-            // Versi "A" selalu mematikan Z, berbeda dengan versi CB (M2).
+            // RLCA RRCA RLA RRA = RLC RRC RL RR versi CB untuk A, dengan
+            // satu perbedaan: versi tanpa prefix ini selalu mematikan Z.
+            self.regs.a = self.rotate_shift(op, a);
             self.regs.set_flag(Flag::Zero, false);
-            self.regs.set_flag(Flag::Subtract, false);
-            self.regs.set_flag(Flag::HalfCarry, false);
-            self.regs.set_flag(Flag::Carry, out == 1);
             return;
         }
         match op {
@@ -616,6 +609,68 @@ impl Cpu {
                 self.regs.set_flag(Flag::Carry, op == 6 || !carry);
             }
         }
+    }
+
+    /// Menjalankan satu instruksi prefix CB. Mengembalikan siklus total
+    /// (termasuk byte 0xCB).
+    ///
+    /// Byte kedua memakai pola yang sama dengan opcode biasa:
+    ///
+    /// ```text
+    ///  xx yyy zzz
+    ///  00 op  r    geser/putar: RLC RRC RL RR SLA SRA SWAP SRL
+    ///  01 bit r    BIT bit,r   (uji satu bit)
+    ///  10 bit r    RES bit,r   (matikan satu bit)
+    ///  11 bit r    SET bit,r   (nyalakan satu bit)
+    /// ```
+    fn execute_cb(&mut self, bus: &mut impl Bus) -> u8 {
+        let cb = self.fetch(bus);
+        let y = (cb >> 3) & 0b111;
+        let z = cb & 0b111;
+        let value = self.read_r(bus, z);
+        let result = match cb >> 6 {
+            0 => self.rotate_shift(y, value),
+            // BIT hanya membaca: Z = bit itu mati. C tidak berubah.
+            1 => {
+                self.regs.set_flag(Flag::Zero, value & (1 << y) == 0);
+                self.regs.set_flag(Flag::Subtract, false);
+                self.regs.set_flag(Flag::HalfCarry, true);
+                return if z == 6 { 12 } else { 8 };
+            }
+            // RES dan SET tidak menyentuh flag.
+            2 => value & !(1 << y),
+            _ => value | (1 << y),
+        };
+        self.write_r(bus, z, result);
+        if z == 6 { 16 } else { 8 }
+    }
+
+    /// Geser/putar nomor `op` pada `value`, dengan flag Z N H C.
+    /// Urutan `op`: RLC, RRC, RL, RR, SLA, SRA, SWAP, SRL.
+    ///
+    /// - RLC/RRC memutar 8 bit; RL/RR memutar 9 bit lewat flag C.
+    /// - SLA/SRL menggeser dan mengisi 0; SRA menggeser kanan tetapi bit 7
+    ///   tetap (tanda bilangan dipertahankan).
+    /// - SWAP menukar 4 bit atas dan 4 bit bawah.
+    ///
+    /// Bit yang "jatuh" dari ujung masuk ke flag C (SWAP selalu C = 0).
+    fn rotate_shift(&mut self, op: u8, value: u8) -> u8 {
+        let carry = u8::from(self.regs.flag(Flag::Carry));
+        let (result, out) = match op {
+            0 => (value.rotate_left(1), value >> 7),
+            1 => (value.rotate_right(1), value & 1),
+            2 => ((value << 1) | carry, value >> 7),
+            3 => ((value >> 1) | (carry << 7), value & 1),
+            4 => (value << 1, value >> 7),
+            5 => ((value >> 1) | (value & 0x80), value & 1),
+            6 => (value.rotate_left(4), 0),
+            _ => (value >> 1, value & 1),
+        };
+        self.regs.set_flag(Flag::Zero, result == 0);
+        self.regs.set_flag(Flag::Subtract, false);
+        self.regs.set_flag(Flag::HalfCarry, false);
+        self.regs.set_flag(Flag::Carry, out == 1);
+        result
     }
 
     /// DAA: koreksi A menjadi BCD (dua digit desimal, satu per 4 bit)

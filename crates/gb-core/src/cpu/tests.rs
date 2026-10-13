@@ -953,3 +953,158 @@ fn rst_calls_fixed_addresses() {
         assert_eq!((bus.read(0xFFFD), bus.read(0xFFFC)), (0x01, 0x01));
     }
 }
+
+// ---------------------------------------------------------------------------
+// Prefix CB
+// ---------------------------------------------------------------------------
+
+/// Menjalankan `CB cb` dengan B = `b` dan flag C awal tertentu (8 siklus).
+fn cb_b(cb: u8, b: u8, carry_in: bool) -> Cpu {
+    let (mut cpu, mut bus) = setup(&[0xCB, cb]);
+    cpu.regs.b = b;
+    cpu.regs.set_flag(Flag::Carry, carry_in);
+    assert_eq!(step(&mut cpu, &mut bus), 8);
+    assert_eq!(cpu.regs.pc, START + 2);
+    cpu
+}
+
+#[test]
+fn cb_rlc_and_rrc_rotate_8_bits() {
+    let cpu = cb_b(0x00, 0b1000_0101, false); // RLC B
+    assert_eq!(cpu.regs.b, 0b0000_1011);
+    assert_eq!(flags(&cpu), (false, false, false, true));
+
+    let cpu = cb_b(0x08, 0b0000_0010, true); // RRC B
+    assert_eq!(cpu.regs.b, 0b0000_0001);
+    assert_eq!(flags(&cpu), (false, false, false, false));
+}
+
+#[test]
+fn cb_rotate_of_zero_sets_zero_unlike_rlca() {
+    // CB RLC A dengan A = 0 → Z menyala.
+    let (mut cpu, mut bus) = setup(&[0xCB, 0x07]);
+    cpu.regs.a = 0;
+    step(&mut cpu, &mut bus);
+    assert!(cpu.regs.flag(Flag::Zero));
+
+    // RLCA (tanpa prefix) dengan A = 0 → Z tetap mati.
+    let (mut cpu, mut bus) = setup(&[0x07]);
+    cpu.regs.a = 0;
+    step(&mut cpu, &mut bus);
+    assert!(!cpu.regs.flag(Flag::Zero));
+}
+
+#[test]
+fn cb_rl_and_rr_rotate_through_carry() {
+    let cpu = cb_b(0x10, 0b1000_0000, false); // RL B: 9 bit lewat C
+    assert_eq!(cpu.regs.b, 0x00);
+    assert_eq!(flags(&cpu), (true, false, false, true));
+
+    let cpu = cb_b(0x10, 0b0000_0001, true); // RL B: C lama masuk bit 0
+    assert_eq!(cpu.regs.b, 0b0000_0011);
+    assert!(!cpu.regs.flag(Flag::Carry));
+
+    let cpu = cb_b(0x18, 0b0000_0000, true); // RR B: C lama masuk bit 7
+    assert_eq!(cpu.regs.b, 0b1000_0000);
+    assert_eq!(flags(&cpu), (false, false, false, false));
+}
+
+#[test]
+fn cb_sla_shifts_in_zero() {
+    let cpu = cb_b(0x20, 0b1000_0001, true); // SLA B
+    assert_eq!(cpu.regs.b, 0b0000_0010); // carry lama TIDAK masuk
+    assert!(cpu.regs.flag(Flag::Carry));
+
+    let cpu = cb_b(0x20, 0b1000_0000, false);
+    assert_eq!(cpu.regs.b, 0);
+    assert_eq!(flags(&cpu), (true, false, false, true));
+}
+
+#[test]
+fn cb_sra_keeps_sign_and_srl_does_not() {
+    // SRA: bit 7 tetap (bilangan negatif tetap negatif).
+    let cpu = cb_b(0x28, 0b1000_0001, false);
+    assert_eq!(cpu.regs.b, 0b1100_0000);
+    assert!(cpu.regs.flag(Flag::Carry));
+
+    // SRL: bit 7 diisi 0.
+    let cpu = cb_b(0x38, 0b1000_0001, false);
+    assert_eq!(cpu.regs.b, 0b0100_0000);
+    assert!(cpu.regs.flag(Flag::Carry));
+
+    // Kasus batas: 0x01 → 0x00, Z dan C menyala untuk keduanya.
+    for cb in [0x28, 0x38] {
+        let cpu = cb_b(cb, 0x01, false);
+        assert_eq!(cpu.regs.b, 0x00);
+        assert_eq!(flags(&cpu), (true, false, false, true), "CB {cb:#04X}");
+    }
+}
+
+#[test]
+fn cb_swap_exchanges_nibbles_and_clears_carry() {
+    let cpu = cb_b(0x30, 0xF1, true); // SWAP B
+    assert_eq!(cpu.regs.b, 0x1F);
+    assert_eq!(flags(&cpu), (false, false, false, false));
+
+    let cpu = cb_b(0x30, 0x00, true);
+    assert_eq!(flags(&cpu), (true, false, false, false));
+}
+
+#[test]
+fn cb_bit_tests_each_bit_and_keeps_carry() {
+    // B = 0b1010_1010: bit ganjil menyala, bit genap mati.
+    for bit in 0..8u8 {
+        let cb = 0x40 | (bit << 3); // BIT bit,B
+        let cpu = cb_b(cb, 0b1010_1010, true);
+        let is_set = bit % 2 == 1;
+        // Z = bit itu MATI; N = 0; H = 1; C tidak berubah (tetap 1).
+        assert_eq!(flags(&cpu), (!is_set, false, true, true), "BIT {bit},B");
+        assert_eq!(cpu.regs.b, 0b1010_1010, "BIT tidak mengubah register");
+    }
+}
+
+#[test]
+fn cb_res_and_set_change_one_bit_without_flags() {
+    let cpu = cb_b(0xB8, 0xFF, false); // RES 7,B
+    assert_eq!(cpu.regs.b, 0x7F);
+    let cpu = cb_b(0xC0, 0x00, false); // SET 0,B
+    assert_eq!(cpu.regs.b, 0x01);
+
+    // RES dan SET tidak menyentuh flag sama sekali.
+    let (mut cpu, mut bus) = setup(&[0xCB, 0x80, 0xCB, 0xC0]); // RES 0,B ; SET 0,B
+    cpu.regs.set_f(0xF0);
+    step(&mut cpu, &mut bus);
+    step(&mut cpu, &mut bus);
+    assert_eq!(cpu.regs.f(), 0xF0);
+}
+
+#[test]
+fn cb_hl_variants_use_memory_and_take_longer() {
+    // LD HL,0xC000 ; SET 3,(HL) ; BIT 3,(HL) ; SWAP (HL)
+    let (mut cpu, mut bus) = setup(&[0x21, 0x00, 0xC0, 0xCB, 0xDE, 0xCB, 0x5E, 0xCB, 0x36]);
+    bus.write(0xC000, 0x20);
+    step(&mut cpu, &mut bus);
+    assert_eq!(step(&mut cpu, &mut bus), 16); // SET (HL): baca + tulis
+    assert_eq!(bus.read(0xC000), 0x28);
+    assert_eq!(step(&mut cpu, &mut bus), 12); // BIT (HL): hanya baca
+    assert!(!cpu.regs.flag(Flag::Zero));
+    assert_eq!(step(&mut cpu, &mut bus), 16);
+    assert_eq!(bus.read(0xC000), 0x82);
+}
+
+#[test]
+fn every_cb_opcode_runs_with_documented_cycles() {
+    // Pan Docs: CB r = 8, CB (HL) = 16, kecuali BIT n,(HL) = 12.
+    for cb in 0..=255u8 {
+        let (mut cpu, mut bus) = setup(&[0xCB, cb]);
+        cpu.regs.set_hl(0xC000);
+        let uses_hl = cb & 0b111 == 6;
+        let is_bit = cb >> 6 == 1;
+        let expected = match (uses_hl, is_bit) {
+            (false, _) => 8,
+            (true, true) => 12,
+            (true, false) => 16,
+        };
+        assert_eq!(cpu.step(&mut bus), Ok(expected), "CB {cb:#04X}");
+    }
+}

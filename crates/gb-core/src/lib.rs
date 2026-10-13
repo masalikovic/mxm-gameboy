@@ -13,6 +13,7 @@
 //! Modul:
 //!
 //! - [`bus`]: cara CPU membaca dan menulis memori (ADR-0010).
+//! - [`cartridge`]: header, ROM, RAM cartridge, dan MBC1/2/3/5 (ADR-0013).
 //! - [`cpu`]: CPU SM83, dibangun instruksi demi instruksi di M1–M2.
 //! - [`joypad`]: 8 tombol dan register P1.
 //! - [`machine`]: [`machine::GameBoy`], yaitu CPU + bus memori lengkap.
@@ -25,6 +26,7 @@
 extern crate alloc;
 
 pub mod bus;
+pub mod cartridge;
 pub mod cpu;
 pub mod joypad;
 pub mod machine;

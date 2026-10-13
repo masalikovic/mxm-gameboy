@@ -20,6 +20,7 @@ Lihat [ADR-0001](0001-catat-keputusan-dengan-adr.md) untuk alasannya.
 | [0010](0010-bentuk-cpu.md) | Bentuk CPU: trait Bus, decode lewat pola bit, siklus dalam T-cycle | Diterima |
 | [0011](0011-waktu-dan-interrupt.md) | Waktu dan interrupt: komponen dimajukan setelah setiap instruksi | Diterima |
 | [0012](0012-model-ppu.md) | Model PPU: digambar per baris, framebuffer tingkat kegelapan | Diterima |
+| [0013](0013-model-cartridge.md) | Model cartridge: satu enum MBC di dalam gb-core | Diterima |
 
 ## Template
 

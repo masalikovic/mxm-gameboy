@@ -4,9 +4,9 @@
 //! [`SystemBus`] memetakan setiap alamat 16-bit ke komponen yang benar.
 //!
 //! ```text
-//! 0000–7FFF  ROM cartridge (32 KiB; bank switching menyusul di M6)
+//! 0000–7FFF  ROM cartridge, bank dipilih MBC (cartridge.rs, ADR-0013)
 //! 8000–9FFF  RAM video (8 KiB)
-//! A000–BFFF  RAM cartridge (belum ada → baca 0xFF)
+//! A000–BFFF  RAM cartridge (kalau ada dan dinyalakan; selain itu 0xFF)
 //! C000–DFFF  RAM kerja (8 KiB)
 //! E000–FDFF  "echo": cermin C000–DDFF
 //! FE00–FE9F  OAM, data 40 sprite
@@ -28,6 +28,7 @@
 use alloc::boxed::Box;
 
 use crate::bus::Bus;
+use crate::cartridge::{Cartridge, CartridgeError};
 use crate::cpu::{Cpu, CpuError};
 use crate::joypad::{Buttons, JOYPAD_INTERRUPT, Joypad};
 use crate::ppu::Ppu;
@@ -45,9 +46,64 @@ const IF: u16 = 0xFF0F;
 /// Bit interrupt timer di IF.
 const TIMER_INTERRUPT: u8 = 0b0000_0100;
 
+/// Bit yang selalu terbaca 1 di register I/O 0xFF00–0xFF7F pada DMG.
+///
+/// Bit yang tidak tersambung ke apa pun di chip terbaca 1. Register yang sama
+/// sekali tidak ada di DMG (termasuk register khusus Game Boy Color seperti
+/// KEY1 di 0xFF4D) terbaca 0xFF. Program memakai ini untuk mengenali
+/// mesinnya: kalau KEY1 terbaca 0x00, program mengira berjalan di CGB.
+/// Timer, PPU, joypad, dan IF mengurus bitnya sendiri; tabel ini untuk sisanya.
+const IO_UNUSED_BITS: [u8; 0x80] = {
+    let mut mask = [0xFF; 0x80];
+    let used: [(usize, u8); 31] = [
+        (0x01, 0x00), // SB
+        (0x02, 0x7E), // SC: hanya bit 7 dan 0
+        (0x10, 0x80), // suara kanal 1 (M7)
+        (0x11, 0x3F),
+        (0x12, 0x00),
+        (0x13, 0xFF),
+        (0x14, 0xBF),
+        (0x16, 0x3F), // kanal 2
+        (0x17, 0x00),
+        (0x18, 0xFF),
+        (0x19, 0xBF),
+        (0x1A, 0x7F), // kanal 3
+        (0x1B, 0xFF),
+        (0x1C, 0x9F),
+        (0x1D, 0xFF),
+        (0x1E, 0xBF),
+        (0x20, 0xFF), // kanal 4
+        (0x21, 0x00),
+        (0x22, 0x00),
+        (0x23, 0xBF),
+        (0x24, 0x00), // volume utama
+        (0x25, 0x00), // panning
+        (0x26, 0x70), // NR52: bit 6–4 tidak terpakai
+        (0x30, 0x00), // RAM gelombang 0xFF30–0xFF3F
+        (0x31, 0x00),
+        (0x32, 0x00),
+        (0x33, 0x00),
+        (0x34, 0x00),
+        (0x35, 0x00),
+        (0x36, 0x00),
+        (0x37, 0x00),
+    ];
+    let mut i = 0;
+    while i < used.len() {
+        mask[used[i].0] = used[i].1;
+        i += 1;
+    }
+    let mut wave = 0x38;
+    while wave <= 0x3F {
+        mask[wave] = 0x00;
+        wave += 1;
+    }
+    mask
+};
+
 /// Bus memori lengkap sebuah Game Boy DMG.
 pub struct SystemBus {
-    rom: Box<[u8]>,
+    cartridge: Cartridge,
     wram: [u8; 0x2000],
     io: [u8; 0x80],
     hram: [u8; 0x7F],
@@ -59,11 +115,11 @@ pub struct SystemBus {
 }
 
 impl SystemBus {
-    /// Bus dengan `rom` terpasang di 0000–7FFF dan semua RAM berisi nol.
+    /// Bus dengan `cartridge` terpasang dan semua RAM lain berisi nol.
     #[must_use]
-    pub fn new(rom: Box<[u8]>) -> Self {
+    pub fn new(cartridge: Cartridge) -> Self {
         Self {
-            rom,
+            cartridge,
             wram: [0; 0x2000],
             io: [0; 0x80],
             hram: [0; 0x7F],
@@ -82,6 +138,17 @@ impl SystemBus {
     /// adapter. ROM uji Blargg memakai jalur ini untuk "mencetak" hasilnya.
     pub const fn take_serial_byte(&mut self) -> Option<u8> {
         self.serial_out.take()
+    }
+
+    /// Cartridge yang terpasang (header, RAM untuk simpan permainan).
+    #[must_use]
+    pub const fn cartridge(&self) -> &Cartridge {
+        &self.cartridge
+    }
+
+    /// Cartridge yang bisa diubah, misalnya untuk memasang RAM simpanan.
+    pub const fn cartridge_mut(&mut self) -> &mut Cartridge {
+        &mut self.cartridge
     }
 
     /// PPU (layar), untuk membaca framebuffer.
@@ -132,10 +199,11 @@ impl Bus for SystemBus {
     fn read(&mut self, address: u16) -> u8 {
         let a = usize::from(address);
         match address {
-            0x0000..=0x7FFF => self.rom.get(a).copied().unwrap_or(0xFF),
+            0x0000..=0x7FFF => self.cartridge.read_rom(address),
             0x8000..=0x9FFF => self.ppu.read_vram(address),
-            // Tidak ada RAM cartridge (M6) dan area FEA0–FEFF tidak terpakai.
-            0xA000..=0xBFFF | 0xFEA0..=0xFEFF => 0xFF,
+            0xA000..=0xBFFF => self.cartridge.read_ram(address),
+            // Area FEA0–FEFF tidak terpakai.
+            0xFEA0..=0xFEFF => 0xFF,
             0xC000..=0xDFFF => self.wram[a - 0xC000],
             0xE000..=0xFDFF => self.wram[a - 0xE000],
             0xFE00..=0xFE9F => self.ppu.read_oam(address),
@@ -144,7 +212,7 @@ impl Bus for SystemBus {
             0xFF04..=0xFF07 => self.timer.read(address),
             // Bit 7–5 IF tidak dipakai dan terbaca 1.
             IF => self.io[a - 0xFF00] | 0xE0,
-            0xFF01..=0xFF7F => self.io[a - 0xFF00],
+            0xFF01..=0xFF7F => self.io[a - 0xFF00] | IO_UNUSED_BITS[a - 0xFF00],
             0xFF80..=0xFFFE => self.hram[a - 0xFF80],
             0xFFFF => self.ie,
         }
@@ -154,8 +222,9 @@ impl Bus for SystemBus {
         let a = usize::from(address);
         match address {
             // Tulisan ke area ROM adalah perintah ke chip MBC (ganti bank).
-            // ROM 32 KiB tidak butuh itu; MBC menyusul di M6.
-            0x0000..=0x7FFF | 0xA000..=0xBFFF | 0xFEA0..=0xFEFF => {}
+            0x0000..=0x7FFF => self.cartridge.write_rom(address, value),
+            0xA000..=0xBFFF => self.cartridge.write_ram(address, value),
+            0xFEA0..=0xFEFF => {}
             0x8000..=0x9FFF => self.ppu.write_vram(address, value),
             0xC000..=0xDFFF => self.wram[a - 0xC000] = value,
             0xE000..=0xFDFF => self.wram[a - 0xE000] = value,
@@ -197,12 +266,16 @@ pub struct GameBoy {
 
 impl GameBoy {
     /// Game Boy dengan `rom` terpasang, dalam keadaan setelah boot ROM.
-    #[must_use]
-    pub fn new(rom: Box<[u8]>) -> Self {
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// [`CartridgeError`] kalau `rom` terlalu kecil atau MBC-nya belum
+    /// didukung (ADR-0013).
+    pub fn new(rom: Box<[u8]>) -> Result<Self, CartridgeError> {
+        Ok(Self {
             cpu: Cpu::new(),
-            bus: SystemBus::new(rom),
-        }
+            bus: SystemBus::new(Cartridge::new(rom)?),
+        })
     }
 
     /// Menjalankan satu instruksi. Lihat [`Cpu::step`].
@@ -253,10 +326,32 @@ impl GameBoy {
 mod tests {
     use alloc::vec;
 
-    use super::{Bus, GameBoy, SystemBus};
+    use super::{Bus, Cartridge, GameBoy, SystemBus};
 
     fn bus() -> SystemBus {
-        SystemBus::new(vec![0xAB; 0x8000].into_boxed_slice())
+        // ROM berisi 0xAB, kecuali header: tanpa MBC, tanpa RAM.
+        let mut rom = vec![0xAB; 0x8000];
+        rom[0x147] = 0x00;
+        rom[0x149] = 0x00;
+        SystemBus::new(Cartridge::new(rom.into_boxed_slice()).expect("ROM tes valid"))
+    }
+
+    #[test]
+    fn unused_io_bits_read_as_one() {
+        let mut bus = bus();
+        // KEY1 (0xFF4D) hanya ada di Game Boy Color. Di DMG terbaca 0xFF;
+        // kalau terbaca 0x00, program Blargg mengira mesinnya CGB dan macet.
+        bus.write(0xFF4D, 0x01);
+        assert_eq!(bus.read(0xFF4D), 0xFF);
+        assert_eq!(bus.read(0xFF03), 0xFF);
+        // SC: hanya bit 7 dan 0 yang ada.
+        bus.write(0xFF02, 0x00);
+        assert_eq!(bus.read(0xFF02), 0x7E);
+        // Byte yang dipakai penuh tetap terbaca apa adanya.
+        bus.write(0xFF01, 0x00);
+        assert_eq!(bus.read(0xFF01), 0x00);
+        bus.write(0xFF30, 0x12);
+        assert_eq!(bus.read(0xFF30), 0x12, "RAM gelombang suara");
     }
 
     #[test]
@@ -349,7 +444,7 @@ mod tests {
             0x3E, 0x04, 0xE0, 0xFF, 0x3E, 0xFF, 0xE0, 0x05, 0x3E, 0x05, 0xE0, 0x07, 0xFB, 0x76,
             0x0C,
         ]);
-        let mut gb = GameBoy::new(rom.into_boxed_slice());
+        let mut gb = GameBoy::new(rom.into_boxed_slice()).expect("ROM tes valid");
         gb.cpu.regs.b = 0;
         gb.cpu.regs.c = 0;
         // Cukup banyak langkah untuk: siapkan, tidur, timer meluap,
@@ -412,7 +507,7 @@ mod tests {
         // LD A,'H' ; LDH (01),A ; LD A,0x81 ; LDH (02),A
         let mut rom = vec![0u8; 0x8000];
         rom[0x100..0x108].copy_from_slice(&[0x3E, b'H', 0xE0, 0x01, 0x3E, 0x81, 0xE0, 0x02]);
-        let mut gb = GameBoy::new(rom.into_boxed_slice());
+        let mut gb = GameBoy::new(rom.into_boxed_slice()).expect("ROM tes valid");
         for _ in 0..4 {
             gb.step().expect("opcode harus ada");
         }

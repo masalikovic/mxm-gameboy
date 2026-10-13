@@ -1,0 +1,21 @@
+[package]
+name = "gb-web"
+description = "Adapter browser: membuka gb-core ke JavaScript lewat WebAssembly."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+# cdylib: bentuk library yang bisa menjadi file .wasm.
+# rlib: supaya `cargo test` tetap bisa menguji crate ini di laptop/CI.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+gb-core.workspace = true
+wasm-bindgen.workspace = true
+
+[lints]
+workspace = true

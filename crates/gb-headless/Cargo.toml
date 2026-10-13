@@ -1,0 +1,15 @@
+[package]
+name = "gb-headless"
+description = "Adapter command line: menjalankan gb-core tanpa layar, untuk tes dan CI."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+gb-core.workspace = true
+
+[lints]
+workspace = true

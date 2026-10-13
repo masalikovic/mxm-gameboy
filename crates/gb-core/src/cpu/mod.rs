@@ -47,6 +47,11 @@ pub enum CpuError {
 pub struct Cpu {
     /// Semua register.
     pub regs: Registers,
+    /// IME (Interrupt Master Enable): saklar utama semua interrupt.
+    /// Lompatan ke penangan interrupt sendiri ditulis di M3.
+    ime: bool,
+    /// `EI` baru menyalakan IME **setelah** instruksi berikutnya selesai.
+    ei_pending: bool,
 }
 
 impl Default for Cpu {
@@ -76,7 +81,11 @@ impl Cpu {
         regs.l = 0x4D;
         regs.sp = 0xFFFE;
         regs.pc = 0x0100;
-        Self { regs }
+        Self {
+            regs,
+            ime: false,
+            ei_pending: false,
+        }
     }
 
     /// Menjalankan satu instruksi dan mengembalikan jumlah T-cycle-nya.
@@ -87,6 +96,7 @@ impl Cpu {
     /// berubah dalam kasus itu.
     pub fn step(&mut self, bus: &mut impl Bus) -> Result<u8, CpuError> {
         let address = self.regs.pc;
+        let enable_ime_after = self.ei_pending;
         let opcode = self.fetch(bus);
 
         // Dua bit teratas opcode (x) memilih satu dari empat kelompok besar.
@@ -103,7 +113,33 @@ impl Cpu {
             }
             _ => self.execute_block3(bus, opcode),
         };
-        cycles.ok_or_else(|| self.unimplemented(opcode, address))
+        let cycles = cycles.ok_or_else(|| self.unimplemented(opcode, address))?;
+        // Efek tertunda EI: berlaku setelah instruksi sesudah EI selesai,
+        // kecuali instruksi itu DI (yang membatalkan permintaan EI).
+        if enable_ime_after && self.ei_pending {
+            self.ime = true;
+            self.ei_pending = false;
+        }
+        Ok(cycles)
+    }
+
+    /// `DI` (`enable` = false): matikan IME seketika dan batalkan EI yang
+    /// tertunda. `EI` (`enable` = true): IME baru menyala setelah instruksi
+    /// berikutnya. Contoh klasik: `EI ; RET` → RET selesai dulu sebelum
+    /// interrupt boleh masuk, sehingga stack tidak kacau.
+    const fn set_ime_request(&mut self, enable: bool) {
+        if enable {
+            self.ei_pending = true;
+        } else {
+            self.ime = false;
+            self.ei_pending = false;
+        }
+    }
+
+    /// Apakah IME (saklar utama interrupt) sedang menyala.
+    #[must_use]
+    pub const fn interrupts_enabled(&self) -> bool {
+        self.ime
     }
 
     /// Kelompok 0 (0x00–0x3F): NOP, LD 16-bit, INC/DEC, LD r,d8, JR.
@@ -293,9 +329,14 @@ impl Cpu {
                 }
             }
 
-            // RET: ambil alamat kembali dari stack.
-            0xC9 => {
+            // RET: ambil alamat kembali dari stack. RETI = RET + IME menyala
+            // seketika (tanpa penundaan seperti EI), dipakai di akhir
+            // penangan interrupt.
+            0xC9 | 0xD9 => {
                 self.regs.pc = self.pop(bus);
+                if opcode == 0xD9 {
+                    self.ime = true;
+                }
                 16
             }
 
@@ -309,27 +350,15 @@ impl Cpu {
                 }
             }
 
-            // PUSH rr: urutan pasangan BC DE HL AF (bit 5–4 opcode).
+            // PUSH rr / POP rr: pasangan BC DE HL AF (`rp2`, bit 5–4 opcode).
+            // POP AF tetap membuang 4 bit bawah F (lihat set_af).
             0xC5 | 0xD5 | 0xE5 | 0xF5 => {
-                let value = match opcode {
-                    0xC5 => self.regs.bc(),
-                    0xD5 => self.regs.de(),
-                    0xE5 => self.regs.hl(),
-                    _ => self.regs.af(),
-                };
-                self.push(bus, value);
+                self.push(bus, self.rp2((opcode >> 4) & 0b11));
                 16
             }
-
-            // POP rr. POP AF tetap membuang 4 bit bawah F (lihat set_af).
             0xC1 | 0xD1 | 0xE1 | 0xF1 => {
                 let value = self.pop(bus);
-                match opcode {
-                    0xC1 => self.regs.set_bc(value),
-                    0xD1 => self.regs.set_de(value),
-                    0xE1 => self.regs.set_hl(value),
-                    _ => self.regs.set_af(value),
-                }
+                self.set_rp2((opcode >> 4) & 0b11, value);
                 12
             }
 
@@ -352,6 +381,12 @@ impl Cpu {
                 let value = self.sp_plus_e8(bus);
                 self.regs.set_hl(value);
                 12
+            }
+
+            // DI / EI: saklar IME (lihat `set_ime_request`).
+            0xF3 | 0xFB => {
+                self.set_ime_request(opcode == 0xFB);
+                4
             }
 
             // Prefix CB: byte berikutnya adalah opcode dari tabel kedua.
@@ -508,6 +543,21 @@ impl Cpu {
             1 => self.regs.set_de(value),
             2 => self.regs.set_hl(value),
             _ => self.regs.sp = value,
+        }
+    }
+
+    /// Pasangan 16-bit untuk PUSH/POP nomor `p`: BC, DE, HL, **AF**.
+    /// Sama dengan [`Cpu::rp`], kecuali nomor 3 adalah AF, bukan SP.
+    const fn rp2(&self, p: u8) -> u16 {
+        if p == 3 { self.regs.af() } else { self.rp(p) }
+    }
+
+    /// Mengisi pasangan 16-bit untuk POP nomor `p`: BC, DE, HL, AF.
+    const fn set_rp2(&mut self, p: u8, value: u16) {
+        if p == 3 {
+            self.regs.set_af(value);
+        } else {
+            self.set_rp(p, value);
         }
     }
 

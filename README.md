@@ -24,7 +24,12 @@ cargo test                     # unit test semua crate
 cargo run -p gb-headless       # adapter command line
 ./tools/build-web.sh           # build web ke dist/ (Windows: .\tools\build-web.ps1)
 cd dist && python3 -m http.server 8000
+
+./tools/fetch-test-roms.sh     # unduh ROM uji Blargg (dicek SHA-256, tidak di-commit)
+./tools/run-test-roms.sh       # jalankan & bandingkan dengan tools/test-roms.tsv
 ```
+
+Di Windows, dua skrip ROM uji dijalankan dari **Git Bash** (ikut terpasang bersama Git for Windows).
 
 Detail pemasangan alat untuk Windows: [docs/setup-windows.md](docs/setup-windows.md).
 
@@ -34,7 +39,7 @@ Detail pemasangan alat untuk Windows: [docs/setup-windows.md](docs/setup-windows
 |---|---|---|
 | M0 | Visi, ADR, setup, kerangka repo, CI, GitHub Pages | ✅ selesai ([jurnal](docs/jurnal/m0.md)) |
 | M1 | CPU bagian 1: register, flag, bus, 239/244 opcode | ✅ selesai ([jurnal](docs/jurnal/m1.md)) |
-| M2 | CPU lengkap: prefix CB, ROM uji Blargg | ⏭️ berikutnya |
+| M2 | CPU lengkap: prefix CB, ROM uji Blargg (10/11 lulus) | 🚧 sedang berjalan |
 | M3–M8 | timer & interrupt → PPU → input → cartridge → audio → debugger | belum mulai |
 
 ## Legal

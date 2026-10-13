@@ -14,12 +14,16 @@
 //!
 //! - [`bus`]: cara CPU membaca dan menulis memori (ADR-0010).
 //! - [`cpu`]: CPU SM83, dibangun instruksi demi instruksi di M1–M2.
+//! - [`machine`]: [`machine::GameBoy`], yaitu CPU + bus memori lengkap.
 
 #![no_std]
 #![forbid(unsafe_code)]
 
+extern crate alloc;
+
 pub mod bus;
 pub mod cpu;
+pub mod machine;
 
 /// Versi `gb-core`, diambil dari `Cargo.toml` saat compile.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

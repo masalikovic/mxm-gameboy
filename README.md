@@ -33,8 +33,9 @@ Detail pemasangan alat untuk Windows: [docs/setup-windows.md](docs/setup-windows
 | Tahap | Isi | Status |
 |---|---|---|
 | M0 | Visi, ADR, setup, kerangka repo, CI, GitHub Pages | ✅ selesai ([jurnal](docs/jurnal/m0.md)) |
-| M1 | CPU bagian 1: register, flag, bus, instruksi dasar | 🚧 sedang berjalan |
-| M2–M8 | CPU lengkap → timer → PPU → input → cartridge → audio → debugger | belum mulai |
+| M1 | CPU bagian 1: register, flag, bus, 239/244 opcode | ✅ selesai ([jurnal](docs/jurnal/m1.md)) |
+| M2 | CPU lengkap: prefix CB, ROM uji Blargg | ⏭️ berikutnya |
+| M3–M8 | timer & interrupt → PPU → input → cartridge → audio → debugger | belum mulai |
 
 ## Legal
 

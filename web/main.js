@@ -18,11 +18,19 @@ const buildLabel = commit.slice(0, 7) + (localStamp ? '+lokal' : '');
 
 const screenText = document.getElementById('screen-text');
 const status = document.getElementById('status');
+const build = document.getElementById('build');
 
 try {
   await init({ module_or_path: wasmUrl }); // mengunduh dan menyiapkan .wasm
   screenText.textContent = greeting();
-  status.textContent = `gb-core ${coreVersion()} · build ${buildLabel} · WebAssembly aktif`;
+  status.textContent = 'WebAssembly aktif';
+  // Tiap bagian dibungkus <span> yang tidak boleh patah (style.css), jadi di
+  // layar sempit baris hanya pindah di antara bagian, bukan di tengah kata.
+  build.replaceChildren(
+    Object.assign(document.createElement('span'), { textContent: `gb-core ${coreVersion()}` }),
+    ' · ',
+    Object.assign(document.createElement('span'), { textContent: `build ${buildLabel}` }),
+  );
 } catch (error) {
   screenText.textContent = 'Gagal memuat emulator';
   status.textContent = `Error: ${error.message ?? error}`;

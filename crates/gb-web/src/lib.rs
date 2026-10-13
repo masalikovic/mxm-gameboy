@@ -12,9 +12,6 @@ use gb_core::joypad::Buttons;
 use gb_core::machine::GameBoy;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-/// Ukuran minimum file ROM: header cartridge berakhir di 0x014F.
-const MIN_ROM_SIZE: usize = 0x150;
-
 /// Sapaan dari core, untuk ditampilkan di halaman web.
 #[wasm_bindgen]
 #[must_use]
@@ -42,18 +39,12 @@ impl Emulator {
     ///
     /// # Errors
     ///
-    /// Pesan error kalau file terlalu kecil untuk menjadi ROM Game Boy.
+    /// Pesan error kalau file terlalu kecil untuk menjadi ROM Game Boy atau
+    /// tipe cartridge-nya belum didukung (ADR-0013).
     #[wasm_bindgen(constructor)]
     pub fn new(rom: &[u8]) -> Result<Emulator, String> {
-        if rom.len() < MIN_ROM_SIZE {
-            return Err(format!(
-                "File terlalu kecil untuk ROM Game Boy ({} byte, minimal {MIN_ROM_SIZE}).",
-                rom.len()
-            ));
-        }
-        Ok(Self {
-            gb: GameBoy::new(rom.into()),
-        })
+        let gb = GameBoy::new(rom.into()).map_err(|error| error.to_string())?;
+        Ok(Self { gb })
     }
 
     /// Menjalankan satu frame (±16,7 ms waktu Game Boy).

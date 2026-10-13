@@ -2,9 +2,14 @@
 #
 # Sumber : https://github.com/retrio/gb-test-roms (cermin ROM uji Blargg)
 # Commit : c240dd7d700e5c0b00a7bbba52b53e4ee67b5f15  ← dikunci; ganti hanya lewat PR
+# Bundel : https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip sha256 b9a9d7a1075aa35a3d07c07c34974048672d8520dca9e07a50178f5860c3832c
+#          ← path "c-sp:..." diambil dari zip ini (Mooneye: MIT, ADR-0006)
 #
 # Kolom (dipisah TAB):
 #   sha256   nama-lokal   path-di-repo-sumber   hasil-yang-diharapkan
+#
+# Konvensi lulus: Blargg mencetak "Passed"; Mooneye mengirim 3,5,8,13,21,34
+# lewat serial (gb-headless mengenali keduanya).
 #
 # hasil-yang-diharapkan:
 #   pass          harus "Passed"; kalau tidak, CI merah.
@@ -21,3 +26,36 @@ ab31d3daaaa3a98bdbd9395b64f48c1bdaa889aba5b19dd5aaff4ec2a7d228a3	07-jr_jp_call_r
 b28e1be5cd95f22bd1ecacdd33c6f03e607d68870e31a47b15a0229033d5ba2a	09-op_r_r.gb	cpu_instrs/individual/09-op r,r.gb	pass
 7f5b8e488c6988b5aaba8c2a74529b7c180c55a58449d5ee89d606a07c53514a	10-bit_ops.gb	cpu_instrs/individual/10-bit ops.gb	pass
 0ec0cf9fda3f00becaefa476df6fb526c434abd9d4a4beac237c2c2692dac5d3	11-op_a_hl.gb	cpu_instrs/individual/11-op a,(hl).gb	pass
+8c5e12f41e0ba5bbca796944f92ffe6de28809198682c4332e38d1b3cf56fcf2	cpu_instrs-semua.gb	c-sp:blargg/cpu_instrs/cpu_instrs.gb	pass
+d01e4e7124471bfe3f4773fe20dd27167f8933ef473c43f063cc76170c9c962e	mooneye-daa.gb	c-sp:mooneye-test-suite/acceptance/instr/daa.gb	pass
+0cfccd002d873a1c9cc0f9317b9e23d97b2b47d151cb413d0deb3d65e5666cae	mooneye-bits-mem_oam.gb	c-sp:mooneye-test-suite/acceptance/bits/mem_oam.gb	pass
+0eeaab1343a7f85eef2a1364c849cf244dd76d4e19e25f41defdff95f46febe4	mooneye-bits-reg_f.gb	c-sp:mooneye-test-suite/acceptance/bits/reg_f.gb	pass
+6501bf0c271460c1abc12ab8c97acdccd5aae9bfa394f922f6de74fc8bd7fad3	mooneye-bits-unused_hwio-GS.gb	c-sp:mooneye-test-suite/acceptance/bits/unused_hwio-GS.gb	pass
+73bf6a0d4b1c20728b54414c01935d17a7d67d1f62a4a56c92a51c88608d641c	mbc1-bits_bank1.gb	c-sp:mooneye-test-suite/emulator-only/mbc1/bits_bank1.gb	pass
+add022be32d30d8ccd29669154692f59ca6c91909edb02f803b3ff4e18aa126c	mbc1-bits_bank2.gb	c-sp:mooneye-test-suite/emulator-only/mbc1/bits_bank2.gb	pass
+9605ad49cce45a79ba08d6acf40b827e2e5555b71b79e3c1c74b300240570dc3	mbc1-bits_mode.gb	c-sp:mooneye-test-suite/emulator-only/mbc1/bits_mode.gb	pass
+b2179a08092db54d01b2d13c6b0d94297ee7a6a8256dae0a604c5920f7dbaa66	mbc1-bits_ramg.gb	c-sp:mooneye-test-suite/emulator-only/mbc1/bits_ramg.gb	pass
+fbdff69753e2e9fe01a072b09187b0cd0fe3e011fbe3a126a5b20f960bc7f902	mbc1-multicart_rom_8Mb.gb	c-sp:mooneye-test-suite/emulator-only/mbc1/multicart_rom_8Mb.gb	fail:mbc1-multicart (kartu multi-game, di luar M6)
+ec5a6b2ff6dbfe978e426d8cadad8d46302feb140e947dea85b323b1492fd4c0	mbc1-ram_256kb.gb	c-sp:mooneye-test-suite/emulator-only/mbc1/ram_256kb.gb	pass
+0454ae681a19a54be2ad5b423d72db3a46a47de528ad6eb2a0723062615891e3	mbc1-ram_64kb.gb	c-sp:mooneye-test-suite/emulator-only/mbc1/ram_64kb.gb	pass
+bc8df4b080309e1b24bfd138cba17c668ecf700b0012d712eb258ece3e2f4cd2	mbc1-rom_16Mb.gb	c-sp:mooneye-test-suite/emulator-only/mbc1/rom_16Mb.gb	pass
+acb65391814e549945d40ca897c87b87b789a897eb190f800e1edd039f8e1b7f	mbc1-rom_1Mb.gb	c-sp:mooneye-test-suite/emulator-only/mbc1/rom_1Mb.gb	pass
+a54e3d83bda144ee691d404e09dfb1ded6f51ec2841b4ebaca0bf66df71e0de2	mbc1-rom_2Mb.gb	c-sp:mooneye-test-suite/emulator-only/mbc1/rom_2Mb.gb	pass
+ffb8517cee0bfe5a61ee4ec0066d7abcd8ca90f186665b46c3d519e756de2d3b	mbc1-rom_4Mb.gb	c-sp:mooneye-test-suite/emulator-only/mbc1/rom_4Mb.gb	pass
+4a968ede6110d1afb00d9006f10765dd8e3abb09997e41326078324c05da496d	mbc1-rom_512kb.gb	c-sp:mooneye-test-suite/emulator-only/mbc1/rom_512kb.gb	pass
+6daefa4cc40550db772a9e5032606373f48e9402730717b315095f2746368fb9	mbc1-rom_8Mb.gb	c-sp:mooneye-test-suite/emulator-only/mbc1/rom_8Mb.gb	pass
+06ec942260c6d9a6c4328901a29f030a9bb322e65c0ffad546adc3e7aebe1f1a	mbc2-bits_ramg.gb	c-sp:mooneye-test-suite/emulator-only/mbc2/bits_ramg.gb	pass
+56208e0462eecc3e5b3c34174f13c63475b20ccdd9641cebfec3498b02c91b08	mbc2-bits_romb.gb	c-sp:mooneye-test-suite/emulator-only/mbc2/bits_romb.gb	pass
+fb19c4eb7a15082271af681831bed6cdc9ef9fdc03a83055b7a1fdf7ca819258	mbc2-bits_unused.gb	c-sp:mooneye-test-suite/emulator-only/mbc2/bits_unused.gb	pass
+e0f088ea700d59602aed84945de15a6e9b6f9ced2328da77db96e2171f6bc3dc	mbc2-ram.gb	c-sp:mooneye-test-suite/emulator-only/mbc2/ram.gb	pass
+0c38118c17b09ffb972967bcd02a851032a22be98177f1b59757be68bb86f34d	mbc2-rom_1Mb.gb	c-sp:mooneye-test-suite/emulator-only/mbc2/rom_1Mb.gb	pass
+2e69db86a7bb0f67937f371759fa3e9c3a31e9c7cb46c541fd28b6aa613746c2	mbc2-rom_2Mb.gb	c-sp:mooneye-test-suite/emulator-only/mbc2/rom_2Mb.gb	pass
+a2026b5d5558b4ec7765416f9263a6a45e487f174d942f819c8d19ded225c406	mbc2-rom_512kb.gb	c-sp:mooneye-test-suite/emulator-only/mbc2/rom_512kb.gb	pass
+1263454a55568657b7ada75a01d26ebc9710e76fdd173dd971dfe6d48058ccd2	mbc5-rom_16Mb.gb	c-sp:mooneye-test-suite/emulator-only/mbc5/rom_16Mb.gb	pass
+c8a69617df3d65ea992c37d02e203025fa45ba83ea7121cd3e5c1e0d6a4bf848	mbc5-rom_1Mb.gb	c-sp:mooneye-test-suite/emulator-only/mbc5/rom_1Mb.gb	pass
+9b87448c157aeaa72aae61cff0f5b4435ba76a0031be4ec525a0b7bdb616a301	mbc5-rom_2Mb.gb	c-sp:mooneye-test-suite/emulator-only/mbc5/rom_2Mb.gb	pass
+e8ad899adb4f3195d86f7e01eb04aeb41c9f6b757b87d5d195fc95061b97a7ad	mbc5-rom_32Mb.gb	c-sp:mooneye-test-suite/emulator-only/mbc5/rom_32Mb.gb	pass
+f4c7e8c471fd77776f63a1bdb465b2241e4686b4f02c7c90a963240da54de2b5	mbc5-rom_4Mb.gb	c-sp:mooneye-test-suite/emulator-only/mbc5/rom_4Mb.gb	pass
+0d47ec7e884c8236f0dba4d26fbebe490305850b41755c0118d18997adf1274a	mbc5-rom_512kb.gb	c-sp:mooneye-test-suite/emulator-only/mbc5/rom_512kb.gb	pass
+80c12a1c01224439e33eb385d64028bfca14e46f5b5f3eece5495167351bf0ec	mbc5-rom_64Mb.gb	c-sp:mooneye-test-suite/emulator-only/mbc5/rom_64Mb.gb	pass
+3b2d6d717c4f5adf0179ed05f3a206231f17855591084ca910fe0ef2c7e5c112	mbc5-rom_8Mb.gb	c-sp:mooneye-test-suite/emulator-only/mbc5/rom_8Mb.gb	pass

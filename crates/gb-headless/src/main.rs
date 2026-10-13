@@ -12,11 +12,16 @@
 //! benar-benar sampai ke game, tanpa manusia menekan tombol.
 //!
 //! Saat menjalankan ROM, semua byte yang dikirim lewat port serial dicetak ke
-//! terminal. ROM uji Blargg mencetak hasilnya lewat jalur itu, diakhiri
-//! "Passed" atau "Failed" (ADR-0005). Kode keluar:
+//! terminal. Dua konvensi ROM uji dikenali (ADR-0005):
 //!
-//! - `0`: keluaran serial memuat "Passed";
-//! - `1`: keluaran serial memuat "Failed";
+//! - Blargg mencetak teks yang diakhiri "Passed" atau "Failed";
+//! - Mooneye mengirim deret Fibonacci 3, 5, 8, 13, 21, 34 kalau lulus, atau
+//!   enam byte 0x42 kalau gagal.
+//!
+//! Kode keluar:
+//!
+//! - `0`: lulus ("Passed" atau deret Fibonacci);
+//! - `1`: gagal ("Failed" atau 0x42 ×6);
 //! - `2`: error lain (file tidak ada, opcode belum ditulis, batas siklus habis).
 //!
 //! Berbeda dengan core, adapter boleh memakai `std`: membaca file, menulis ke
@@ -27,6 +32,10 @@ use std::process::ExitCode;
 
 use gb_core::joypad::{Button, Buttons};
 use gb_core::machine::GameBoy;
+
+/// Tanda lulus/gagal ROM uji Mooneye lewat serial.
+const MOONEYE_PASS: [u8; 6] = [3, 5, 8, 13, 21, 34];
+const MOONEYE_FAIL: [u8; 6] = [0x42; 6];
 
 /// Batas bawaan: ±60 detik waktu Game Boy (4.194.304 siklus per detik).
 const DEFAULT_MAX_CYCLES: u64 = 60 * 4_194_304;
@@ -55,7 +64,13 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    run(GameBoy::new(rom.into_boxed_slice()), max_cycles)
+    match GameBoy::new(rom.into_boxed_slice()) {
+        Ok(gb) => run(gb, max_cycles),
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::from(2)
+        }
+    }
 }
 
 /// Mode layar: jalankan N frame, cetak hash framebuffer, dan (opsional)
@@ -94,7 +109,13 @@ fn screen_mode(path: &str, args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let mut gb = GameBoy::new(rom.into_boxed_slice());
+    let mut gb = match GameBoy::new(rom.into_boxed_slice()) {
+        Ok(gb) => gb,
+        Err(error) => {
+            eprintln!("{error}");
+            return ExitCode::from(2);
+        }
+    };
     gb.set_buttons(held);
     for _ in 0..frames {
         if let Err(error) = gb.run_frame() {
@@ -173,17 +194,17 @@ fn run(mut gb: GameBoy, max_cycles: u64) -> ExitCode {
             output.push(byte);
             // Kegagalan menulis ke terminal tidak boleh menghentikan tes.
             let _ = stdout.write_all(&[byte]).and_then(|()| stdout.flush());
-            if output.ends_with(b"Passed") {
+            if output.ends_with(b"Passed") || output.ends_with(&MOONEYE_PASS) {
                 println!();
                 return ExitCode::SUCCESS;
             }
-            if output.ends_with(b"Failed") {
+            if output.ends_with(b"Failed") || output.ends_with(&MOONEYE_FAIL) {
                 println!();
                 return ExitCode::from(1);
             }
         }
     }
-    eprintln!("\nBatas {max_cycles} siklus habis tanpa \"Passed\" atau \"Failed\".");
+    eprintln!("\nBatas {max_cycles} siklus habis tanpa tanda lulus atau gagal.");
     ExitCode::from(2)
 }
 

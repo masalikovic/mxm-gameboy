@@ -116,11 +116,12 @@ jobs:
         with:
           path: dist
 
-  # ROM uji pihak ketiga (ADR-0005): diunduh dari commit yang dikunci,
-  # dicek SHA-256-nya, lalu dibandingkan dengan hasil yang diharapkan di
-  # tools/test-roms.tsv. ROM tidak pernah di-commit (ADR-0006).
+  # ROM uji pihak ketiga (ADR-0005): Blargg dan Mooneye, diunduh dari sumber
+  # yang dikunci (commit / versi + SHA-256 bundel), dicek SHA-256 per file,
+  # lalu dibandingkan dengan hasil yang diharapkan di tools/test-roms.tsv.
+  # ROM tidak pernah di-commit (ADR-0006).
   test-roms:
-    name: ROM uji · Blargg cpu_instrs
+    name: ROM uji · Blargg + Mooneye
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

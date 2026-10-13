@@ -1,0 +1,3 @@
+# Golden test layar (ADR-0005): hash FNV-1a 64-bit framebuffer setelah N frame.
+# Format: <frames> <hash>. Ubah hanya kalau perubahan gambar memang disengaja.
+60 65bfb6048c367538

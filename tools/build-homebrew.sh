@@ -32,6 +32,17 @@ for dir in homebrew/*/; do
     echo "== ${name}: GAGAL" >&2
     problems=$((problems + 1))
   fi
+  # Golden test layar (opsional): homebrew/<nama>/screen.hash = "<frames> <hash>".
+  if [[ -f "${dir}screen.hash" ]]; then
+    read -r frames expected < <(grep -v '^#' "${dir}screen.hash")
+    actual="$("${headless}" "${rom}" --frames "${frames}" --screenshot "${dir}build/${name}.pgm")"
+    if [[ "${actual}" == "${expected}" ]]; then
+      echo "== ${name}: layar cocok (${frames} frame, ${actual})"
+    else
+      echo "== ${name}: LAYAR BERBEDA: ${actual}, seharusnya ${expected} (lihat ${dir}build/${name}.pgm)" >&2
+      problems=$((problems + 1))
+    fi
+  fi
 done
 
 if (( problems > 0 )); then

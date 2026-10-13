@@ -1,8 +1,10 @@
 //! Adapter command line untuk `gb-core`.
 //!
 //! ```text
-//! gb-headless                       mencetak sapaan (smoke test M0)
-//! gb-headless <rom.gb> [maks-siklus] menjalankan ROM tanpa layar
+//! gb-headless                        mencetak sapaan (smoke test M0)
+//! gb-headless <rom.gb> [maks-siklus] menjalankan ROM, menilai keluaran serial
+//! gb-headless <rom.gb> --frames N [--screenshot layar.pgm]
+//!                                    menjalankan N frame, mencetak hash layar
 //! ```
 //!
 //! Saat menjalankan ROM, semua byte yang dikirim lewat port serial dicetak ke
@@ -30,6 +32,9 @@ fn main() -> ExitCode {
         println!("{} (gb-core {})", gb_core::greeting(), gb_core::VERSION);
         return ExitCode::SUCCESS;
     };
+    if args.get(1).map(String::as_str) == Some("--frames") {
+        return screen_mode(path, &args[2..]);
+    }
     let max_cycles = match args.get(1).map(|s| s.parse::<u64>()) {
         None => DEFAULT_MAX_CYCLES,
         Some(Ok(n)) => n,
@@ -46,6 +51,66 @@ fn main() -> ExitCode {
         }
     };
     run(GameBoy::new(rom.into_boxed_slice()), max_cycles)
+}
+
+/// Mode layar: jalankan N frame, cetak hash framebuffer, dan (opsional)
+/// simpan gambar PGM. Hash dipakai golden test (ADR-0005): layar yang sama
+/// persis selalu menghasilkan hash yang sama, karena core deterministik.
+fn screen_mode(path: &str, args: &[String]) -> ExitCode {
+    let Some(Ok(frames)) = args.first().map(|s| s.parse::<u32>()) else {
+        eprintln!("Pakai: gb-headless <rom.gb> --frames N [--screenshot layar.pgm]");
+        return ExitCode::from(2);
+    };
+    let screenshot = match args.get(1).map(String::as_str) {
+        Some("--screenshot") => args.get(2),
+        _ => None,
+    };
+    let rom = match std::fs::read(path) {
+        Ok(rom) => rom,
+        Err(error) => {
+            eprintln!("Gagal membaca {path}: {error}");
+            return ExitCode::from(2);
+        }
+    };
+    let mut gb = GameBoy::new(rom.into_boxed_slice());
+    for _ in 0..frames {
+        if let Err(error) = gb.run_frame() {
+            eprintln!("Berhenti: {error:?}");
+            return ExitCode::from(2);
+        }
+    }
+    println!("{:016x}", fnv1a64(gb.framebuffer()));
+    if let Some(file) = screenshot
+        && let Err(error) = std::fs::write(file, to_pgm(gb.framebuffer()))
+    {
+        eprintln!("Gagal menulis {file}: {error}");
+        return ExitCode::from(2);
+    }
+    ExitCode::SUCCESS
+}
+
+/// Hash FNV-1a 64-bit: sederhana, cukup untuk mendeteksi perubahan layar.
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
+}
+
+/// Framebuffer → gambar PGM (format abu-abu paling sederhana).
+/// Tingkat 0 (terang) … 3 (gelap) → putih … hitam.
+fn to_pgm(framebuffer: &[u8]) -> Vec<u8> {
+    let mut image = format!(
+        "P5\n{} {}\n255\n",
+        gb_core::ppu::WIDTH,
+        gb_core::ppu::HEIGHT
+    )
+    .into_bytes();
+    image.extend(
+        framebuffer
+            .iter()
+            .map(|&shade| [255, 170, 85, 0][usize::from(shade & 3)]),
+    );
+    image
 }
 
 /// Menjalankan ROM sampai keluaran serial memuat "Passed"/"Failed", CPU

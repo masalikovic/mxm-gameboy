@@ -27,9 +27,13 @@ cd dist && python3 -m http.server 8000
 
 ./tools/fetch-test-roms.sh     # unduh ROM uji Blargg (dicek SHA-256, tidak di-commit)
 ./tools/run-test-roms.sh       # jalankan & bandingkan dengan tools/test-roms.tsv
+
+./tools/fetch-gbdk.sh          # unduh GBDK-2020 4.5.0 (dicek SHA-256) ke .gbdk/
+./tools/build-homebrew.sh      # build program C di homebrew/ lalu jalankan
 ```
 
-Di Windows, dua skrip ROM uji dijalankan dari **Git Bash** (ikut terpasang bersama Git for Windows).
+Di Windows, skrip `.sh` dijalankan dari **Git Bash** (ikut terpasang bersama Git for Windows).
+Untuk GBDK di Windows, ikuti [langkah 8 panduan setup](docs/setup-windows.md).
 
 Detail pemasangan alat untuk Windows: [docs/setup-windows.md](docs/setup-windows.md).
 

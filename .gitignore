@@ -18,3 +18,6 @@
 .idea/
 .DS_Store
 Thumbs.db
+
+# GBDK-2020 yang diunduh tools/fetch-gbdk.sh (ADR-0004)
+/.gbdk/

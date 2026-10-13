@@ -108,6 +108,35 @@ python -m http.server 8000
 3. Di HP (Wi-Fi yang sama), buka `http://192.168.1.23:8000`.
 4. Jika Windows Firewall bertanya, izinkan Python untuk **Private networks** saja.
 
+## 8. GBDK-2020: menulis program C untuk Game Boy (mulai M3)
+
+GBDK adalah compiler C untuk Game Boy (ADR-0004). Versinya dikunci: **4.5.0**.
+
+1. Unduh <https://github.com/gbdk-2020/gbdk-2020/releases/download/4.5.0/gbdk-win64.zip>.
+2. Pastikan file tidak rusak atau tertukar. Di PowerShell, di folder unduhan:
+
+```powershell
+(Get-FileHash .\gbdk-win64.zip -Algorithm SHA256).Hash
+```
+
+   Hasilnya harus **persis**
+   `266854CE92E3064871C5B28CD3436CC2A6CB136AF9E7CF617140108F8C1C5890`.
+   Kalau berbeda, hapus file itu dan unduh ulang.
+
+3. Ekstrak zip ke `C:\`, sehingga ada file `C:\gbdk\bin\lcc.exe`.
+4. Dari folder repo, build dan jalankan program pertama:
+
+```powershell
+mkdir homebrew\halo\build -Force
+C:\gbdk\bin\lcc.exe -o homebrew\halo\build\halo.gb homebrew\halo\main.c
+cargo run --release -p gb-headless -- homebrew\halo\build\halo.gb
+```
+
+**Cek:** keluaran diakhiri `Passed`, setelah `1 + 2 + ... + 100 = 5050`.
+
+Alternatif (semua program sekaligus, dari **Git Bash**):
+`GBDK_HOME=/c/gbdk ./tools/build-homebrew.sh`
+
 ## Masalah umum
 
 | Gejala | Penyebab & solusi |
@@ -117,8 +146,8 @@ python -m http.server 8000
 | `could not find Cargo.toml` | PowerShell belum berada di folder repo. Jalankan `cd $HOME\Documents\mxm-gameboy` dulu (atau lokasi clone Anda). |
 | HP tidak bisa membuka halaman | Beda jaringan, atau firewall memblokir. Cek langkah 7.4. |
 | Antivirus memperlambat build | Tambahkan folder `target\` proyek ke pengecualian antivirus (opsional). |
+| `lcc.exe` tidak dikenal | Zip belum diekstrak ke `C:\`, atau ekstraknya membuat folder ganda (`C:\gbdk\gbdk\bin`). Pindahkan supaya `C:\gbdk\bin\lcc.exe` ada. |
 
 ## Belum diperlukan sekarang
 
-- **GBDK-2020** — dipasang di M3 (panduan menyusul).
 - **Node.js/npm** — tidak dipakai (ADR-0003).

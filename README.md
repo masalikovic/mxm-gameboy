@@ -14,8 +14,10 @@ keputusan penting dicatat, setiap tahap punya bukti selesai yang bisa dicek.
 
 ## Coba sekarang
 
-Buka **<https://masalikovic.github.io/mxm-gameboy/>** di HP. Halaman ini otomatis
-diperbarui setiap ada perubahan yang masuk ke `main` dan lulus CI (ADR-0007).
+Buka **<https://masalikovic.github.io/mxm-gameboy/>** di HP. Emulator langsung
+menjalankan ROM demo `homebrew/layar` (program C kita sendiri), dan Anda bisa memuat
+file `.gb` milik sendiri; file itu hanya dibaca di perangkat Anda (ADR-0006).
+Halaman ini otomatis diperbarui setiap ada perubahan yang masuk ke `main` dan lulus CI (ADR-0007).
 
 ## Build sendiri
 

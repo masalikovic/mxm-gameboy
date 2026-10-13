@@ -15,15 +15,23 @@
     <p class="brand"><span>MXM</span> · GAME BOY</p>
     <section class="bezel" aria-label="Layar emulator">
       <div class="screen">
+        <!-- 160×144 piksel asli; CSS memperbesarnya tanpa menghaluskan. -->
+        <canvas id="lcd" width="160" height="144"></canvas>
         <p id="screen-text" class="screen-text">Memuat…</p>
       </div>
     </section>
     <p id="status" class="status" role="status">Menyiapkan WebAssembly</p>
     <p id="build" class="build"></p>
+    <p id="perf" class="build"></p>
+    <label class="rom-picker">
+      <input id="rom-input" type="file" accept=".gb,.gbc,application/octet-stream">
+      Muat ROM .gb dari perangkat ini
+    </label>
     <noscript><p class="status">Halaman ini butuh JavaScript untuk menjalankan emulator.</p></noscript>
     <p class="note">
-      Tahap M0: teks di layar dibuat oleh <code>gb-core</code> (Rust) dan dikirim
-      ke halaman ini lewat WebAssembly.
+      Tahap M4: gambar di atas dibuat oleh PPU <code>gb-core</code> (Rust →
+      WebAssembly) dari program C <code>homebrew/layar</code>. ROM yang Anda muat
+      hanya dibaca di perangkat ini dan tidak diunggah ke mana pun.
       <a href="https://github.com/Masalikovic/mxm-gameboy">Kode sumber</a>
     </p>
   </main>

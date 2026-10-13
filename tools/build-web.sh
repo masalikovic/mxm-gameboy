@@ -34,6 +34,14 @@ cp -R web dist
 wasm-bindgen --target web --no-typescript --out-dir dist/pkg \
   target/wasm32-unknown-unknown/release/gb_web.wasm
 
+# 4b. ROM homebrew kita (kalau sudah dibuild tools/build-homebrew.sh) ikut
+#     disajikan sebagai demo (ADR-0006: ROM homebrew boleh dideploy).
+#     Tidak ada ROM pihak ketiga yang pernah disalin ke sini.
+mkdir -p dist/roms
+for rom in homebrew/*/build/*.gb; do
+  [[ -f "${rom}" ]] && cp "${rom}" dist/roms/
+done
+
 # 5. Cache busting (ADR-0009): ganti __BUILD__ dengan versi build, supaya
 #    URL file berubah setiap build dan browser HP tidak memakai file lama.
 #    Versi = hash commit; kalau ada perubahan yang belum di-commit, ditambah waktu.

@@ -97,6 +97,15 @@ jobs:
         if: steps.wasm-bindgen-cache.outputs.cache-hit != 'true'
         run: cargo install wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION" --locked
 
+      # ROM demo (homebrew/layar) dibuild dari kode C kita, lalu ikut ke dist/.
+      - uses: actions/cache@v4
+        with:
+          path: .gbdk
+          key: gbdk-${{ runner.os }}-${{ hashFiles('tools/fetch-gbdk.sh') }}
+
+      - name: Build ROM homebrew untuk demo
+        run: ./tools/fetch-gbdk.sh && ./tools/build-homebrew.sh
+
       - name: Build web (tools/build-web.sh)
         run: ./tools/build-web.sh
 

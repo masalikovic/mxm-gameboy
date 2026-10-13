@@ -10,12 +10,16 @@
 //! - **Deterministik** — input yang sama selalu menghasilkan output yang sama.
 //!   Waktu di dalam core diukur dalam siklus CPU, bukan jam dinding.
 //!
-//! Di M0 core baru berisi sapaan, supaya seluruh jalur
-//! core → adapter → browser bisa dibuktikan berjalan sebelum emulasi dimulai.
-//! CPU, bus, timer, dan seterusnya menyusul mulai M1.
+//! Modul:
+//!
+//! - [`bus`]: cara CPU membaca dan menulis memori (ADR-0010).
+//! - [`cpu`]: CPU SM83, dibangun instruksi demi instruksi di M1–M2.
 
 #![no_std]
 #![forbid(unsafe_code)]
+
+pub mod bus;
+pub mod cpu;
 
 /// Versi `gb-core`, diambil dari `Cargo.toml` saat compile.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

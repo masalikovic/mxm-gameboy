@@ -33,7 +33,8 @@ Detail pemasangan alat untuk Windows: [docs/setup-windows.md](docs/setup-windows
 | Tahap | Isi | Status |
 |---|---|---|
 | M0 | Visi, ADR, setup, kerangka repo, CI, GitHub Pages | ✅ selesai ([jurnal](docs/jurnal/m0.md)) |
-| M1–M8 | CPU → timer → PPU → input → cartridge → audio → debugger | belum mulai |
+| M1 | CPU bagian 1: register, flag, bus, instruksi dasar | 🚧 sedang berjalan |
+| M2–M8 | CPU lengkap → timer → PPU → input → cartridge → audio → debugger | belum mulai |
 
 ## Legal
 

@@ -8,6 +8,7 @@
 // URL berubah setiap build, jadi browser tidak memakai file lama dari cache.
 import init, { coreVersion, Emulator } from './pkg/gb_web.js?v=__BUILD__';
 import { attachInput } from './input.js?v=__BUILD__';
+import { deleteSave, loadSave, saveKey, storeSave } from './save.js?v=__BUILD__';
 
 const wasmUrl = new URL('./pkg/gb_web_bg.wasm?v=__BUILD__', import.meta.url);
 // ROM demo: dibuild dari homebrew/<nama>/main.c di CI (ADR-0006).
@@ -33,6 +34,9 @@ const build = document.getElementById('build');
 const perf = document.getElementById('perf');
 const romInput = document.getElementById('rom-input');
 const demo = document.getElementById('demo');
+const saveLine = document.getElementById('save');
+const saveText = document.getElementById('save-text');
+const saveDelete = document.getElementById('save-delete');
 
 // Sentuhan + keyboard → bit tombol → gb-core (lewat gb-web).
 const input = attachInput({
@@ -59,6 +63,29 @@ let lastTime = 0;
 let backlog = 0;
 let emulationMs = 0;
 let framesSinceReport = 0;
+
+// Simpan permainan (M6). Hanya untuk cartridge berbaterai.
+let current = null; // { bytes, name } ROM yang sedang jalan, untuk "Hapus simpanan"
+let key = null; // kunci localStorage; null = cartridge tanpa baterai
+let savePending = false;
+let lastSave = 0;
+const SAVE_EVERY_MS = 1000; // game yang menulis RAM tiap frame tetap disimpan ≤ 1×/detik
+
+function showSave(text) {
+  saveText.textContent = text;
+  saveLine.hidden = key === null;
+}
+
+/** Menulis RAM ke penyimpanan kalau ada perubahan yang belum disimpan. */
+function flushSave() {
+  if (!savePending || key === null || !emulator) return;
+  savePending = false;
+  lastSave = performance.now();
+  const time = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+  showSave(storeSave(key, emulator.ram())
+    ? `Simpanan: tersimpan di perangkat ini (${time})`
+    : 'Simpanan: browser menolak menyimpan (mode privat?)');
+}
 
 /** Framebuffer (tingkat 0–3) → piksel RGBA di canvas. */
 function draw() {
@@ -97,6 +124,8 @@ function tick(now) {
     ran++;
   }
   if (ran > 0) {
+    if (key !== null && emulator.takeRamDirty()) savePending = true;
+    if (savePending && now - lastSave >= SAVE_EVERY_MS) flushSave();
     draw();
     framesSinceReport += ran;
     if (framesSinceReport >= 30) {
@@ -116,8 +145,10 @@ function stop(message) {
 
 /** Memasang ROM dan mulai berjalan. */
 function start(bytes, name) {
+  flushSave(); // jangan sampai simpanan ROM sebelumnya hilang
   running = false;
   emulator?.free();
+  key = null;
   try {
     emulator = new Emulator(bytes);
   } catch (error) {
@@ -126,6 +157,15 @@ function start(bytes, name) {
     return;
   }
   emulator.setButtons(input.mask); // tombol yang sudah ditahan sebelum ROM dimuat
+  current = { bytes, name };
+  if (emulator.hasBattery()) {
+    key = saveKey(bytes, emulator.title());
+    const saved = loadSave(key);
+    if (saved) emulator.loadRam(saved); // sebelum frame pertama, seperti baterai
+    showSave(saved ? 'Simpanan: dimuat dari perangkat ini' : 'Simpanan: belum ada');
+  } else {
+    showSave('');
+  }
   screenText.hidden = true;
   status.textContent = `ROM: ${name}`;
   running = true;
@@ -148,6 +188,21 @@ async function startDemo(file) {
     stop('ROM demo belum ada di build ini. Muat file .gb di bawah.');
   }
 }
+
+saveDelete.addEventListener('click', () => {
+  if (key === null || !current) return;
+  if (!confirm('Hapus simpanan game ini dari perangkat ini?')) return;
+  deleteSave(key);
+  savePending = false;
+  key = null; // supaya start() tidak menyimpan ulang RAM lama
+  start(current.bytes, current.name); // mulai ulang dengan RAM kosong
+});
+
+// Tab ditutup, disembunyikan, atau HP mengunci layar: simpan sekarang.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushSave();
+});
+window.addEventListener('pagehide', flushSave);
 
 demo.addEventListener('change', () => {
   startDemo(demo.value);

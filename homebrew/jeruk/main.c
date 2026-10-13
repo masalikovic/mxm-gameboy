@@ -1,7 +1,8 @@
 /*
  * jeruk — "Kejar Jeruk", game pertama yang bisa dimainkan (M5).
  *
- * Gerakkan robot dengan D-pad, ambil jeruk sebanyak mungkin.
+ * Gerakkan robot dengan D-pad, ambil jeruk sebanyak mungkin. Rekor skor
+ * disimpan di RAM cartridge berbaterai (M6): tetap ada setelah HP dimatikan.
  *   D-pad      bergerak 1 piksel per frame
  *   A atau B   (ditahan) berlari, 2 piksel per frame
  *   Start      jeda / lanjut
@@ -9,7 +10,8 @@
  *
  * Yang diuji dari emulator kita: joypad (register P1), sprite (robot dan
  * jeruk, robot dicerminkan saat menghadap kiri), window (bilah skor di
- * bawah), dan background (judul dan pagar).
+ * bawah), background (judul dan pagar), dan RAM cartridge MBC1 berbaterai
+ * (lcc.flags: -Wm-yt0x03 = MBC1+RAM+baterai, -Wm-ya1 = satu bank RAM 8 KiB).
  *
  * Tesnya golden test (homebrew/jeruk/screen.hash) dengan tombol ditahan:
  * tanpa tombol, tahan kanan, tahan kanan + A, dan tahan Start. Serial tetap
@@ -65,9 +67,42 @@ static const unsigned char fence[16] = {
 static unsigned char px = 16, py = 72; /* robot */
 static unsigned char ox = 64, oy = 72; /* jeruk: sejajar robot di awal */
 static unsigned int score;
+static unsigned int best; /* rekor, dibaca dari dan ditulis ke RAM cartridge */
 static unsigned char paused;
 static unsigned int rng = 0xACE1;
 static unsigned char row[20];
+
+/* RAM cartridge di A000–BFFF. Isinya acak (atau nol) di cartridge baru,
+ * jadi rekor hanya dipercaya kalau diawali tanda "MXMJ". */
+#define SAVE ((volatile unsigned char *)0xA000)
+static const unsigned char magic[4] = {'M', 'X', 'M', 'J'};
+
+static void load_best(void)
+{
+    unsigned char i;
+    best = 0;
+    ENABLE_RAM; /* tulis 0x0A ke 0000–1FFF: MBC menyalakan RAM */
+    for (i = 0; i < 4; i++) {
+        if (SAVE[i] != magic[i]) {
+            DISABLE_RAM;
+            return;
+        }
+    }
+    best = SAVE[4] | (SAVE[5] << 8);
+    DISABLE_RAM; /* RAM dimatikan lagi: aman kalau baterai lemah/HP mati */
+}
+
+static void save_best(void)
+{
+    unsigned char i;
+    ENABLE_RAM;
+    for (i = 0; i < 4; i++) {
+        SAVE[i] = magic[i];
+    }
+    SAVE[4] = best & 0xFF;
+    SAVE[5] = best >> 8;
+    DISABLE_RAM;
+}
 
 static void serial_puts(const char *text)
 {
@@ -100,11 +135,19 @@ static unsigned char distance(unsigned char a, unsigned char b)
 static void draw_score(void)
 {
     /* Di SDCC, argumen %c harus bertipe char (tidak dinaikkan ke int
-     * seperti C standar). Tanpa cast, printf membaca argumen bergeser. */
-    gotoxy(1, 17);
-    printf("JERUK %c%c%c   %s", (char)('0' + score / 100 % 10),
-           (char)('0' + score / 10 % 10), (char)('0' + score % 10),
-           paused ? "JEDA" : "    ");
+     * seperti C standar). Tanpa cast, printf membaca argumen bergeser.
+     * Teks 19 huruf mulai kolom 0: tidak sampai kolom terakhir, jadi
+     * konsol GBDK tidak pindah baris dan tidak menggulung layar. */
+    gotoxy(0, 17);
+    if (paused) {
+        printf("JERUK %c%c%c   JEDA   ", (char)('0' + score / 100 % 10),
+               (char)('0' + score / 10 % 10), (char)('0' + score % 10));
+    } else {
+        printf("JERUK %c%c%c REKOR %c%c%c", (char)('0' + score / 100 % 10),
+               (char)('0' + score / 10 % 10), (char)('0' + score % 10),
+               (char)('0' + best / 100 % 10), (char)('0' + best / 10 % 10),
+               (char)('0' + best % 10));
+    }
     get_bkg_tiles(0, 17, 20, 1, row);
     set_win_tiles(0, 0, 20, 1, row);
 }
@@ -139,6 +182,7 @@ void main(void)
     move_sprite(PLAYER, px + 8, py + 16);
     move_sprite(FRUIT, ox + 8, oy + 16);
 
+    load_best();
     draw_score();
     move_win(7, 136);
 
@@ -186,6 +230,10 @@ void main(void)
 
         if (distance(px, ox) < 8 && distance(py, oy) < 8) {
             score++;
+            if (score > best) {
+                best = score;
+                save_best();
+            }
             place_fruit();
             draw_score();
         }

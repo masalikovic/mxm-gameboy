@@ -24,7 +24,11 @@ for dir in homebrew/*/; do
   mkdir -p "${dir}build"
   rom="${dir}build/${name}.gb"
   echo "== ${name}: build"
-  "${lcc}" -o "${rom}" "${dir}main.c"
+  # Flag tambahan per program (opsional), mis. tipe MBC dan RAM cartridge:
+  # homebrew/<nama>/lcc.flags berisi "-Wm-yt0x03 -Wm-ya1".
+  flags=()
+  [[ -f "${dir}lcc.flags" ]] && read -r -a flags < "${dir}lcc.flags"
+  "${lcc}" "${flags[@]}" -o "${rom}" "${dir}main.c"
   echo "== ${name}: jalankan"
   if "${headless}" "${rom}"; then
     echo "== ${name}: ok"

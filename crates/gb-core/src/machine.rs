@@ -29,12 +29,15 @@ use alloc::boxed::Box;
 
 use crate::bus::Bus;
 use crate::cpu::{Cpu, CpuError};
+use crate::joypad::{Buttons, JOYPAD_INTERRUPT, Joypad};
 use crate::ppu::Ppu;
 use crate::timer::Timer;
 
 /// Alamat register serial: byte data (SB) dan kontrol (SC).
 const SB: u16 = 0xFF01;
 const SC: u16 = 0xFF02;
+/// Alamat register P1: tombol.
+const P1: u16 = 0xFF00;
 /// Alamat register DMA: salin 160 byte ke OAM.
 const DMA: u16 = 0xFF46;
 /// Alamat register IF: interrupt yang diminta.
@@ -51,6 +54,7 @@ pub struct SystemBus {
     ie: u8,
     timer: Timer,
     ppu: Ppu,
+    joypad: Joypad,
     serial_out: Option<u8>,
 }
 
@@ -66,6 +70,7 @@ impl SystemBus {
             ie: 0,
             timer: Timer::default(),
             ppu: Ppu::new(),
+            joypad: Joypad::new(),
             serial_out: None,
         }
     }
@@ -99,6 +104,14 @@ impl SystemBus {
         self.request_interrupt(ppu_interrupts);
     }
 
+    /// Mengganti tombol yang sedang ditekan; meminta interrupt joypad kalau
+    /// ada tombol yang baru ditekan.
+    pub fn set_buttons(&mut self, buttons: Buttons) {
+        if self.joypad.set_buttons(buttons) {
+            self.request_interrupt(JOYPAD_INTERRUPT);
+        }
+    }
+
     /// OAM DMA: salin 160 byte dari `page` × 0x100 ke OAM (data sprite).
     /// Di hardware asli butuh 640 siklus; di sini seketika (ADR-0012).
     fn oam_dma(&mut self, page: u8) {
@@ -126,11 +139,12 @@ impl Bus for SystemBus {
             0xC000..=0xDFFF => self.wram[a - 0xC000],
             0xE000..=0xFDFF => self.wram[a - 0xE000],
             0xFE00..=0xFE9F => self.ppu.read_oam(address),
+            P1 => self.joypad.read(),
             0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.read_register(address),
             0xFF04..=0xFF07 => self.timer.read(address),
             // Bit 7–5 IF tidak dipakai dan terbaca 1.
             IF => self.io[a - 0xFF00] | 0xE0,
-            0xFF00..=0xFF7F => self.io[a - 0xFF00],
+            0xFF01..=0xFF7F => self.io[a - 0xFF00],
             0xFF80..=0xFFFE => self.hram[a - 0xFF80],
             0xFFFF => self.ie,
         }
@@ -146,6 +160,7 @@ impl Bus for SystemBus {
             0xC000..=0xDFFF => self.wram[a - 0xC000] = value,
             0xE000..=0xFDFF => self.wram[a - 0xE000] = value,
             0xFE00..=0xFE9F => self.ppu.write_oam(address, value),
+            P1 => self.joypad.write(value),
             0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.write_register(address, value),
             DMA => {
                 self.io[a - 0xFF00] = value;
@@ -165,7 +180,7 @@ impl Bus for SystemBus {
                 }
             }
             IF => self.io[a - 0xFF00] = value & 0x1F,
-            0xFF00..=0xFF7F => self.io[a - 0xFF00] = value,
+            0xFF01..=0xFF7F => self.io[a - 0xFF00] = value,
             0xFF80..=0xFFFE => self.hram[a - 0xFF80] = value,
             0xFFFF => self.ie = value,
         }
@@ -220,6 +235,11 @@ impl GameBoy {
             }
         }
         Ok(())
+    }
+
+    /// Tombol yang sedang ditekan, dari adapter (sentuh, keyboard, tombol fisik).
+    pub fn set_buttons(&mut self, buttons: Buttons) {
+        self.bus.set_buttons(buttons);
     }
 
     /// Layar terakhir: 160×144 tingkat kegelapan 0 (terang) – 3 (gelap).
@@ -374,6 +394,17 @@ mod tests {
             bus.tick(4);
         }
         assert_eq!(bus.read(0xFF0F) & 0b1, 0b1);
+    }
+
+    #[test]
+    fn button_press_is_visible_in_p1_and_requests_interrupt() {
+        use crate::joypad::{Button, Buttons};
+        let mut bus = bus();
+        bus.write(0xFF00, 0x10); // pilih tombol aksi
+        assert_eq!(bus.read(0xFF00) & 0x0F, 0x0F);
+        bus.set_buttons(Buttons(Button::A as u8));
+        assert_eq!(bus.read(0xFF00) & 0x0F, 0x0E, "A = bit 0 → 0");
+        assert_eq!(bus.read(0xFF0F) & 0x10, 0x10, "interrupt joypad diminta");
     }
 
     #[test]

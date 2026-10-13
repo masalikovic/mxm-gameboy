@@ -17,7 +17,15 @@
 //! mana yang sedang digambar; program memakainya untuk menunggu V-blank,
 //! satu-satunya saat aman mengubah VRAM tanpa merusak gambar.
 //!
-//! ## Gambar (M4: background saja)
+//! ## Gambar: tiga lapisan
+//!
+//! 1. **Background**: peta tile yang bisa digeser (`SCX`/`SCY`).
+//! 2. **Window**: peta tile kedua yang tidak ikut bergeser, mulai di
+//!    (`WX` − 7, `WY`). Biasa dipakai untuk skor atau menu.
+//! 3. **Sprite** (objek): 40 gambar kecil yang bisa bergerak bebas, datanya
+//!    di OAM (4 byte per sprite). Lihat [`Ppu::render_sprites`].
+//!
+//! ## Background
 //!
 //! Background adalah peta 32×32 tile; setiap tile 8×8 piksel, 2 bit per
 //! piksel (16 byte). Register `SCX`/`SCY` menggeser jendela 160×144 di atas
@@ -29,8 +37,7 @@
 //!
 //! Penyederhanaan yang disadari (dicatat juga di ADR-0012):
 //! satu baris digambar sekaligus saat masuk H-blank; panjang mode 3 selalu
-//! 172 siklus; VRAM/OAM tidak dikunci selama mode 2/3. Window dan sprite
-//! menyusul di M5.
+//! 172 siklus; VRAM/OAM tidak dikunci selama mode 2/3.
 
 /// Lebar layar dalam piksel.
 pub const WIDTH: usize = 160;
@@ -80,6 +87,13 @@ pub struct Ppu {
     /// saat garis naik dari 0 ke 1 (hardware asli bekerja begini).
     stat_line: bool,
     frame_ready: bool,
+    /// Baris window berikutnya. Hanya naik pada baris yang benar-benar
+    /// menggambar window, jadi window yang disembunyikan di tengah layar
+    /// melanjutkan dari baris terakhirnya (perilaku hardware).
+    window_line: u8,
+    /// Nomor warna background/window (sebelum palet) untuk baris yang sedang
+    /// digambar. Sprite berprioritas rendah hanya tampil di atas warna 0.
+    line_colors: [u8; WIDTH],
 }
 
 impl Default for Ppu {
@@ -110,6 +124,8 @@ impl Ppu {
             dot: 0,
             stat_line: false,
             frame_ready: false,
+            window_line: 0,
+            line_colors: [0; WIDTH],
         }
     }
 
@@ -234,6 +250,7 @@ impl Ppu {
                 self.ly += 1;
                 if self.ly == VISIBLE_LINES {
                     interrupts |= VBLANK_INTERRUPT;
+                    self.window_line = 0;
                     self.frame_ready = true;
                 } else if self.ly == LINES_PER_FRAME {
                     self.ly = 0;
@@ -257,19 +274,36 @@ impl Ppu {
         if rising { STAT_INTERRUPT } else { 0 }
     }
 
-    /// Menggambar baris `LY` dari background ke framebuffer.
+    /// Menggambar baris `LY`: background, lalu window, lalu sprite.
     fn render_line(&mut self) {
-        let row = usize::from(self.ly) * WIDTH;
-        // LCDC bit 0 mati: di DMG background menjadi putih (warna 0).
-        if self.lcdc & 0x01 == 0 {
-            self.framebuffer[row..row + WIDTH].fill(0);
-            return;
+        self.render_background();
+        self.render_window();
+        if self.lcdc & 0x02 != 0 {
+            self.render_sprites();
         }
-        let map_base: u16 = if self.lcdc & 0x08 != 0 {
+    }
+
+    /// Peta tile yang dipilih bit LCDC tertentu: 0x9C00 kalau menyala,
+    /// 0x9800 kalau mati.
+    const fn tile_map(&self, lcdc_bit: u8) -> u16 {
+        if self.lcdc & lcdc_bit != 0 {
             0x9C00
         } else {
             0x9800
-        };
+        }
+    }
+
+    /// Lapisan 1: background yang digeser `SCX`/`SCY`.
+    fn render_background(&mut self) {
+        let row = usize::from(self.ly) * WIDTH;
+        // LCDC bit 0 mati: di DMG background dan window menjadi putih
+        // (tingkat 0), tanpa lewat palet BGP. Sprite tetap bisa tampil.
+        if self.lcdc & 0x01 == 0 {
+            self.line_colors.fill(0);
+            self.framebuffer[row..row + WIDTH].fill(0);
+            return;
+        }
+        let map_base = self.tile_map(0x08);
         let y = self.ly.wrapping_add(self.scy);
         for x in 0..WIDTH {
             // `x` < 160, jadi muat di u8.
@@ -277,8 +311,119 @@ impl Ppu {
             let map_address = map_base + u16::from(y / 8) * 32 + u16::from(px / 8);
             let tile = self.read_vram(map_address);
             let color = self.tile_pixel(tile, px % 8, y % 8);
+            self.line_colors[x] = color;
             self.framebuffer[row + x] = (self.bgp >> (color * 2)) & 0b11;
         }
+    }
+
+    /// Lapisan 2: window, menimpa background mulai kolom `WX` − 7.
+    fn render_window(&mut self) {
+        // LCDC bit 5 = window menyala; di DMG bit 0 mematikan keduanya.
+        if self.lcdc & 0x21 != 0x21 || self.ly < self.wy || self.wx > 166 {
+            return;
+        }
+        let row = usize::from(self.ly) * WIDTH;
+        let map_base = self.tile_map(0x40);
+        let y = self.window_line;
+        // WX 0–6 berarti window mulai sebelum layar; kolom di luar dilewati.
+        let start = i16::from(self.wx) - 7;
+        for x in 0..WIDTH {
+            let screen_x = i16::try_from(x).unwrap_or(0);
+            if screen_x < start {
+                continue;
+            }
+            let wx = u8::try_from(screen_x - start).unwrap_or(0);
+            let map_address = map_base + u16::from(y / 8) * 32 + u16::from(wx / 8);
+            let tile = self.read_vram(map_address);
+            let color = self.tile_pixel(tile, wx % 8, y % 8);
+            self.line_colors[x] = color;
+            self.framebuffer[row + x] = (self.bgp >> (color * 2)) & 0b11;
+        }
+        self.window_line = self.window_line.wrapping_add(1);
+    }
+
+    /// Lapisan 3: sprite.
+    ///
+    /// Setiap sprite di OAM memakai 4 byte:
+    ///
+    /// | byte | isi |
+    /// |---|---|
+    /// | 0 | Y + 16 (Y = 0 berarti tersembunyi di atas layar) |
+    /// | 1 | X + 8 |
+    /// | 2 | nomor tile (selalu dari 0x8000) |
+    /// | 3 | atribut: bit 7 di belakang BG, bit 6 balik vertikal, bit 5 balik horizontal, bit 4 palet OBP1 |
+    ///
+    /// Aturan DMG: paling banyak **10 sprite per baris** (10 pertama di OAM
+    /// yang menyentuh baris itu); warna 0 tembus pandang; kalau dua sprite
+    /// bertumpuk, yang X-nya lebih kecil menang (X sama: urutan OAM lebih
+    /// awal). Tinggi 8 atau 16 piksel menurut LCDC bit 2.
+    fn render_sprites(&mut self) {
+        let height: i16 = if self.lcdc & 0x04 != 0 { 16 } else { 8 };
+        let ly = i16::from(self.ly);
+        // Kumpulkan sampai 10 sprite yang menyentuh baris ini, urut OAM.
+        let mut chosen = [0usize; 10];
+        let mut count = 0;
+        for index in 0..40 {
+            let top = i16::from(self.oam[index * 4]) - 16;
+            if ly >= top && ly < top + height {
+                chosen[count] = index;
+                count += 1;
+                if count == 10 {
+                    break;
+                }
+            }
+        }
+        // Gambar dari prioritas terendah ke tertinggi, supaya yang menang
+        // ditulis terakhir: X lebih besar dulu; X sama → OAM lebih akhir dulu.
+        let chosen = &mut chosen[..count];
+        chosen.sort_unstable_by_key(|&index| (self.oam[index * 4 + 1], index));
+        let row = usize::from(self.ly) * WIDTH;
+        for &index in chosen.iter().rev() {
+            let base = index * 4;
+            let top = i16::from(self.oam[base]) - 16;
+            let left = i16::from(self.oam[base + 1]) - 8;
+            let attributes = self.oam[base + 3];
+            let mut line = ly - top;
+            if attributes & 0x40 != 0 {
+                line = height - 1 - line;
+            }
+            let mut tile = self.oam[base + 2];
+            if height == 16 {
+                tile &= 0xFE; // sprite 8×16 memakai pasangan tile genap/ganjil
+            }
+            // `line` 0..height, jadi muat di u8.
+            let line = u8::try_from(line).unwrap_or(0);
+            let tile_address = 0x8000 + u16::from(tile) * 16 + u16::from(line) * 2;
+            let palette = if attributes & 0x10 != 0 {
+                self.obp1
+            } else {
+                self.obp0
+            };
+            for col in 0..8u8 {
+                let x = left + i16::from(col);
+                let Ok(x) = usize::try_from(x) else { continue };
+                if x >= WIDTH {
+                    continue;
+                }
+                let bit = if attributes & 0x20 != 0 { col } else { 7 - col };
+                let color = self.row_pixel(tile_address, bit);
+                if color == 0 {
+                    continue; // tembus pandang
+                }
+                if attributes & 0x80 != 0 && self.line_colors[x] != 0 {
+                    continue; // di belakang BG/window yang bukan warna 0
+                }
+                self.framebuffer[row + x] = (palette >> (color * 2)) & 0b11;
+            }
+        }
+    }
+
+    /// Nomor warna 0–3 dari satu baris tile di `address` (2 byte), bit `bit`
+    /// (7 = piksel paling kiri).
+    fn row_pixel(&self, address: u16, bit: u8) -> u8 {
+        let lo = self.read_vram(address);
+        let hi = self.read_vram(address + 1);
+        (((hi >> bit) & 1) << 1) | ((lo >> bit) & 1)
     }
 
     /// Nomor warna 0–3 piksel (`col`, `line`) di tile `tile`.
@@ -293,11 +438,7 @@ impl Ppu {
         } else {
             0x9000u16.wrapping_add_signed(i16::from(i8::from_le_bytes([tile])) * 16)
         };
-        let address = base + u16::from(line) * 2;
-        let lo = self.read_vram(address);
-        let hi = self.read_vram(address + 1);
-        let bit = 7 - col;
-        (((hi >> bit) & 1) << 1) | ((lo >> bit) & 1)
+        self.row_pixel(base + u16::from(line) * 2, 7 - col)
     }
 }
 
@@ -474,7 +615,221 @@ mod tests {
     fn background_off_draws_shade_zero() {
         let mut ppu = ppu_with_striped_tile();
         ppu.write_register(0xFF40, 0x90); // LCD on, BG off
+        // Palet yang memetakan warna 0 ke tingkat 3: kalau BG mati tetap lewat
+        // palet, layar akan gelap. Hardware: putih (tingkat 0).
+        ppu.write_register(0xFF47, 0b00_00_00_11);
         run(&mut ppu, 456);
         assert_eq!(&ppu.framebuffer()[..WIDTH], &[0; WIDTH]);
+    }
+
+    // ------------------------------------------------------------------
+    // Sprite (OAM) dan window
+    // ------------------------------------------------------------------
+
+    /// PPU dengan LCD, BG, dan sprite menyala, palet identitas, dan tile 2
+    /// (0x8020) yang setiap barisnya: kiri 4 piksel warna 1, kanan 4 warna 3.
+    fn ppu_for_sprites() -> Ppu {
+        let mut ppu = Ppu::new();
+        ppu.write_register(0xFF40, 0x93); // LCD, tile 0x8000, sprite, BG
+        ppu.write_register(0xFF47, 0b11_10_01_00);
+        ppu.write_register(0xFF48, 0b11_10_01_00); // OBP0
+        ppu.write_register(0xFF49, 0b00_01_10_11); // OBP1 (dibalik)
+        for line in 0..8u16 {
+            ppu.write_vram(0x8020 + line * 2, 0b1111_1111); // bit rendah
+            ppu.write_vram(0x8021 + line * 2, 0b0000_1111); // bit tinggi
+        }
+        ppu
+    }
+
+    /// Menaruh sprite nomor `index` di posisi layar (`x`, `y`).
+    fn place(ppu: &mut Ppu, index: u16, x: i16, y: i16, tile: u8, attributes: u8) {
+        let base = 0xFE00 + index * 4;
+        ppu.write_oam(base, u8::try_from(y + 16).unwrap_or(0));
+        ppu.write_oam(base + 1, u8::try_from(x + 8).unwrap_or(0));
+        ppu.write_oam(base + 2, tile);
+        ppu.write_oam(base + 3, attributes);
+    }
+
+    #[test]
+    fn sprite_draws_with_obp0() {
+        let mut ppu = ppu_for_sprites();
+        place(&mut ppu, 0, 0, 0, 2, 0);
+        run(&mut ppu, 456);
+        assert_eq!(&ppu.framebuffer()[..8], &[1, 1, 1, 1, 3, 3, 3, 3]);
+    }
+
+    #[test]
+    fn sprite_color_zero_is_transparent() {
+        let mut ppu = ppu_for_sprites();
+        ppu.write_register(0xFF47, 0b11_10_01_10); // BG warna 0 → tingkat 2
+        // Tile 3: hanya 2 piksel kiri yang berwarna (warna 1).
+        ppu.write_vram(0x8030, 0b1100_0000);
+        place(&mut ppu, 0, 0, 0, 3, 0);
+        run(&mut ppu, 456);
+        assert_eq!(&ppu.framebuffer()[..4], &[1, 1, 2, 2]);
+    }
+
+    #[test]
+    fn sprite_attribute_bit_4_selects_obp1() {
+        let mut ppu = ppu_for_sprites();
+        place(&mut ppu, 0, 0, 0, 2, 0x10);
+        run(&mut ppu, 456);
+        // OBP1 dibalik: warna 1 → 2, warna 3 → 0.
+        assert_eq!(&ppu.framebuffer()[..8], &[2, 2, 2, 2, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn sprite_x_flip_mirrors_horizontally() {
+        let mut ppu = ppu_for_sprites();
+        place(&mut ppu, 0, 0, 0, 2, 0x20);
+        run(&mut ppu, 456);
+        assert_eq!(&ppu.framebuffer()[..8], &[3, 3, 3, 3, 1, 1, 1, 1]);
+    }
+
+    #[test]
+    fn sprite_y_flip_mirrors_vertically() {
+        let mut ppu = ppu_for_sprites();
+        ppu.write_vram(0x802E, 0b1000_0000); // baris 7: hanya piksel kiri warna 1
+        ppu.write_vram(0x802F, 0);
+        place(&mut ppu, 0, 0, 0, 2, 0x40); // dibalik: baris 7 tampil di baris 0
+        run(&mut ppu, 456);
+        assert_eq!(&ppu.framebuffer()[..3], &[1, 0, 0]);
+    }
+
+    #[test]
+    fn sprite_behind_background_only_shows_over_color_zero() {
+        let mut ppu = ppu_for_sprites();
+        // BG: tile 1 di kolom 0 (warna 2 di setiap piksel, beda dari warna
+        // sprite), kolom 1 kosong.
+        for line in 0..8u16 {
+            ppu.write_vram(0x8011 + line * 2, 0xFF);
+        }
+        ppu.write_vram(0x9800, 1);
+        place(&mut ppu, 0, 4, 0, 2, 0x80); // menutupi kolom 4–11
+        run(&mut ppu, 456);
+        // Kolom 4–7: BG warna 2 → sprite (warna 1) tersembunyi.
+        // Kolom 8–11: BG warna 0 → sprite tampil (warna 3 di bagian kanan).
+        assert_eq!(&ppu.framebuffer()[4..12], &[2, 2, 2, 2, 3, 3, 3, 3]);
+    }
+
+    #[test]
+    fn only_ten_sprites_per_line() {
+        let mut ppu = ppu_for_sprites();
+        for i in 0..11u16 {
+            place(&mut ppu, i, i16::try_from(i).unwrap_or(0) * 10, 0, 2, 0);
+        }
+        run(&mut ppu, 456);
+        assert_eq!(ppu.framebuffer()[90], 1, "sprite ke-10 tampil");
+        assert_eq!(ppu.framebuffer()[100], 0, "sprite ke-11 tidak tampil");
+    }
+
+    #[test]
+    fn smaller_x_wins_when_sprites_overlap() {
+        let mut ppu = ppu_for_sprites();
+        place(&mut ppu, 0, 4, 0, 2, 0x10); // OAM lebih awal, X = 4, OBP1
+        place(&mut ppu, 1, 2, 0, 2, 0); // OAM lebih akhir, X = 2, OBP0
+        run(&mut ppu, 456);
+        // Kolom 4–5: sprite 1 (X lebih kecil) menang → warna 1 lewat OBP0.
+        assert_eq!(&ppu.framebuffer()[4..6], &[1, 1]);
+    }
+
+    #[test]
+    fn same_x_lower_oam_index_wins() {
+        let mut ppu = ppu_for_sprites();
+        place(&mut ppu, 0, 0, 0, 2, 0); // OBP0
+        place(&mut ppu, 1, 0, 0, 2, 0x10); // OBP1, X sama
+        run(&mut ppu, 456);
+        assert_eq!(ppu.framebuffer()[0], 1, "sprite 0 (OBP0) menang");
+    }
+
+    #[test]
+    fn tall_sprites_use_the_odd_tile_for_the_lower_half() {
+        let mut ppu = ppu_for_sprites();
+        ppu.write_register(0xFF40, 0x97); // + sprite 8×16
+        ppu.write_vram(0x8030, 0b1000_0000); // tile 3 baris 0: piksel kiri warna 1
+        // Tile 3 (ganjil) dibulatkan ke pasangan 2/3: tile 2 di atas layar,
+        // tile 3 di baris 0. Tanpa pembulatan, baris 0 jatuh ke tile 4 (kosong).
+        place(&mut ppu, 0, 0, -8, 3, 0);
+        run(&mut ppu, 456);
+        assert_eq!(&ppu.framebuffer()[..2], &[1, 0]);
+    }
+
+    #[test]
+    fn sprites_hidden_when_lcdc_bit_1_is_off() {
+        let mut ppu = ppu_for_sprites();
+        ppu.write_register(0xFF40, 0x91);
+        place(&mut ppu, 0, 0, 0, 2, 0);
+        run(&mut ppu, 456);
+        assert_eq!(&ppu.framebuffer()[..8], &[0; 8]);
+    }
+
+    #[test]
+    fn sprite_partly_off_the_left_edge() {
+        let mut ppu = ppu_for_sprites();
+        place(&mut ppu, 0, -4, 0, 2, 0); // hanya 4 piksel kanan yang terlihat
+        run(&mut ppu, 456);
+        assert_eq!(&ppu.framebuffer()[..5], &[3, 3, 3, 3, 0]);
+    }
+
+    /// PPU dengan window menyala di peta 0x9C00; tile 1 = warna 3 penuh.
+    fn ppu_for_window(wx: u8, wy: u8) -> Ppu {
+        let mut ppu = Ppu::new();
+        // LCD, window di peta 0x9C00, window on, tile data 0x8800 (bertanda), BG on.
+        ppu.write_register(0xFF40, 0xE1);
+        ppu.write_register(0xFF47, 0b11_10_01_00);
+        for line in 0..8u16 {
+            ppu.write_vram(0x9000 + 16 + line * 2, 0xFF);
+            ppu.write_vram(0x9000 + 17 + line * 2, 0xFF);
+        }
+        for column in 0..32u16 {
+            ppu.write_vram(0x9C00 + column, 1);
+        }
+        ppu.write_register(0xFF4B, wx);
+        ppu.write_register(0xFF4A, wy);
+        ppu
+    }
+
+    #[test]
+    fn window_starts_at_wx_minus_7() {
+        let mut ppu = ppu_for_window(7 + 20, 0);
+        run(&mut ppu, 456);
+        assert_eq!(&ppu.framebuffer()[18..22], &[0, 0, 3, 3]);
+    }
+
+    #[test]
+    fn window_waits_for_wy() {
+        let mut ppu = ppu_for_window(7, 2);
+        run(&mut ppu, 2 * 456);
+        assert_eq!(ppu.framebuffer()[WIDTH], 0, "baris 1: belum ada window");
+        run(&mut ppu, 456);
+        assert_eq!(ppu.framebuffer()[2 * WIDTH], 3, "baris 2: window mulai");
+    }
+
+    #[test]
+    fn window_off_when_lcdc_bit_5_is_clear() {
+        let mut ppu = ppu_for_window(7, 0);
+        ppu.write_register(0xFF40, 0xC1); // sama, tetapi bit 5 (window) mati
+        run(&mut ppu, 456);
+        assert_eq!(&ppu.framebuffer()[..8], &[0; 8]);
+    }
+
+    #[test]
+    fn window_line_counter_only_advances_when_drawn() {
+        // Tile window: baris 0 dan 2 warna 3, baris 1 kosong. Jika penghitung
+        // ikut naik saat window tersembunyi, baris layar 2 mengambil baris 2.
+        let mut ppu = ppu_for_window(7, 0);
+        ppu.write_vram(0x9000 + 16 + 2, 0);
+        ppu.write_vram(0x9000 + 17 + 2, 0);
+        run(&mut ppu, 456); // baris 0 layar = baris 0 window (warna 3)
+        ppu.write_register(0xFF4B, 200); // sembunyikan window (WX > 166)
+        run(&mut ppu, 456); // baris 1: window tidak digambar
+        ppu.write_register(0xFF4B, 7);
+        run(&mut ppu, 456); // baris 2 layar = baris 1 window (kosong)
+        assert_eq!(ppu.framebuffer()[0], 3);
+        assert_eq!(
+            ppu.framebuffer()[2 * WIDTH],
+            0,
+            "lanjut dari baris 1, bukan 2"
+        );
     }
 }

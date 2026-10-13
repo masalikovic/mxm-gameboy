@@ -116,12 +116,7 @@ impl Cpu {
             // LD rr,d16: isi pasangan register dengan angka 16-bit.
             0x01 | 0x11 | 0x21 | 0x31 => {
                 let value = self.fetch_u16(bus);
-                match opcode {
-                    0x01 => self.regs.set_bc(value),
-                    0x11 => self.regs.set_de(value),
-                    0x21 => self.regs.set_hl(value),
-                    _ => self.regs.sp = value,
-                }
+                self.set_rp(opcode >> 4, value);
                 12
             }
 
@@ -177,6 +172,45 @@ impl Cpu {
                 } else {
                     8
                 }
+            }
+
+            // LD (BC),A … LD A,(HL-): memori lewat alamat di pasangan register.
+            0x02 | 0x12 | 0x22 | 0x32 | 0x0A | 0x1A | 0x2A | 0x3A => {
+                self.load_indirect(bus, opcode);
+                8
+            }
+
+            // INC rr / DEC rr: 16-bit, tidak menyentuh flag sama sekali.
+            0x03 | 0x13 | 0x23 | 0x33 => {
+                let p = opcode >> 4;
+                self.set_rp(p, self.rp(p).wrapping_add(1));
+                8
+            }
+            0x0B | 0x1B | 0x2B | 0x3B => {
+                let p = opcode >> 4;
+                self.set_rp(p, self.rp(p).wrapping_sub(1));
+                8
+            }
+
+            // ADD HL,rr: penjumlahan 16-bit. Flag Z tidak berubah.
+            0x09 | 0x19 | 0x29 | 0x39 => {
+                self.add_hl(self.rp(opcode >> 4));
+                8
+            }
+
+            // LD (a16),SP: simpan SP ke memori, byte rendah dulu.
+            0x08 => {
+                let address = self.fetch_u16(bus);
+                let [lo, hi] = self.regs.sp.to_le_bytes();
+                bus.write(address, lo);
+                bus.write(address.wrapping_add(1), hi);
+                20
+            }
+
+            // RLCA RRCA RLA RRA DAA CPL SCF CCF: operasi khusus A dan flag.
+            0x07 | 0x0F | 0x17 | 0x1F | 0x27 | 0x2F | 0x37 | 0x3F => {
+                self.accumulator_op(y);
+                4
             }
 
             _ => return None,
@@ -297,6 +331,33 @@ impl Cpu {
                     _ => self.regs.set_af(value),
                 }
                 12
+            }
+
+            // RST n: CALL ke salah satu dari 8 alamat tetap (0x00, 0x08, … 0x38).
+            0xC7 | 0xCF | 0xD7 | 0xDF | 0xE7 | 0xEF | 0xF7 | 0xFF => {
+                self.push(bus, self.regs.pc);
+                self.regs.pc = u16::from(y) * 8;
+                16
+            }
+
+            // LDH dan LD lewat alamat 16-bit langsung.
+            0xE0 | 0xF0 | 0xE2 | 0xF2 | 0xEA | 0xFA => self.load_high_or_absolute(bus, opcode),
+
+            // ADD SP,e8 dan LD HL,SP+e8: SP ditambah angka bertanda.
+            0xE8 => {
+                self.regs.sp = self.sp_plus_e8(bus);
+                16
+            }
+            0xF8 => {
+                let value = self.sp_plus_e8(bus);
+                self.regs.set_hl(value);
+                12
+            }
+
+            // LD SP,HL.
+            0xF9 => {
+                self.regs.sp = self.regs.hl();
+                8
             }
 
             _ => return None,
@@ -424,6 +485,167 @@ impl Cpu {
         self.regs.set_flag(Flag::Zero, result == 0);
         self.regs.set_flag(Flag::Subtract, subtract);
         self.regs.set_flag(Flag::HalfCarry, half);
+        self.regs.set_flag(Flag::Carry, carry);
+    }
+
+    /// Pasangan 16-bit nomor `p` (bit 5–4 opcode): BC, DE, HL, SP.
+    const fn rp(&self, p: u8) -> u16 {
+        match p & 0b11 {
+            0 => self.regs.bc(),
+            1 => self.regs.de(),
+            2 => self.regs.hl(),
+            _ => self.regs.sp,
+        }
+    }
+
+    /// Mengisi pasangan 16-bit nomor `p`: BC, DE, HL, SP.
+    const fn set_rp(&mut self, p: u8, value: u16) {
+        match p & 0b11 {
+            0 => self.regs.set_bc(value),
+            1 => self.regs.set_de(value),
+            2 => self.regs.set_hl(value),
+            _ => self.regs.sp = value,
+        }
+    }
+
+    /// `LD (rr),A` atau `LD A,(rr)` untuk 0x02/0x12/0x22/0x32 dan 0x0A/…/0x3A.
+    ///
+    /// Bit 5–4 memilih alamat: BC, DE, HL lalu HL+1 (`HL+`), HL lalu HL−1
+    /// (`HL-`). Bit 3 memilih arah: 0 = tulis A ke memori, 1 = baca ke A.
+    fn load_indirect(&mut self, bus: &mut impl Bus, opcode: u8) {
+        let address = match opcode >> 4 {
+            0 => self.regs.bc(),
+            1 => self.regs.de(),
+            _ => self.regs.hl(),
+        };
+        match opcode >> 4 {
+            2 => self.regs.set_hl(address.wrapping_add(1)),
+            3 => self.regs.set_hl(address.wrapping_sub(1)),
+            _ => {}
+        }
+        if opcode & 0x08 == 0 {
+            bus.write(address, self.regs.a);
+        } else {
+            self.regs.a = bus.read(address);
+        }
+    }
+
+    /// `LDH (a8),A`, `LDH A,(a8)`, `LD (C),A`, `LD A,(C)`, `LD (a16),A`,
+    /// `LD A,(a16)`. Mengembalikan jumlah siklus.
+    ///
+    /// LDH ("load high") hanya menyebut byte rendah alamat; byte tingginya
+    /// selalu 0xFF. Area 0xFF00–0xFFFF berisi register hardware dan HRAM,
+    /// jadi instruksi pendek ini sangat sering dipakai game.
+    fn load_high_or_absolute(&mut self, bus: &mut impl Bus, opcode: u8) -> u8 {
+        let (address, cycles) = match opcode {
+            0xE0 | 0xF0 => (0xFF00 | u16::from(self.fetch(bus)), 12),
+            0xE2 | 0xF2 => (0xFF00 | u16::from(self.regs.c), 8),
+            _ => (self.fetch_u16(bus), 16),
+        };
+        // Bit 4: 0 (0xE_) = tulis A ke memori, 1 (0xF_) = baca ke A.
+        if opcode & 0x10 == 0 {
+            bus.write(address, self.regs.a);
+        } else {
+            self.regs.a = bus.read(address);
+        }
+        cycles
+    }
+
+    /// HL = HL + `value`. H dari bit 11, C dari bit 15, Z tidak berubah.
+    fn add_hl(&mut self, value: u16) {
+        let hl = self.regs.hl();
+        let (result, carry) = hl.overflowing_add(value);
+        self.regs.set_hl(result);
+        self.regs.set_flag(Flag::Subtract, false);
+        self.regs
+            .set_flag(Flag::HalfCarry, (hl & 0x0FFF) + (value & 0x0FFF) > 0x0FFF);
+        self.regs.set_flag(Flag::Carry, carry);
+    }
+
+    /// SP + angka bertanda berikutnya, untuk `ADD SP,e8` dan `LD HL,SP+e8`.
+    ///
+    /// Keanehan SM83: flag H dan C dihitung seolah-olah byte rendah SP
+    /// ditambah byte offset **tanpa tanda**, walaupun offsetnya negatif.
+    /// Z dan N selalu 0.
+    fn sp_plus_e8(&mut self, bus: &mut impl Bus) -> u16 {
+        let byte = self.fetch(bus);
+        let sp = self.regs.sp;
+        let low = u16::from(byte);
+        self.regs.set_flag(Flag::Zero, false);
+        self.regs.set_flag(Flag::Subtract, false);
+        self.regs
+            .set_flag(Flag::HalfCarry, (sp & 0x0F) + (low & 0x0F) > 0x0F);
+        self.regs.set_flag(Flag::Carry, (sp & 0xFF) + low > 0xFF);
+        sp.wrapping_add_signed(i16::from(i8::from_le_bytes([byte])))
+    }
+
+    /// Operasi khusus A nomor `op` (bit 5–3 opcode):
+    /// RLCA, RRCA, RLA, RRA, DAA, CPL, SCF, CCF.
+    fn accumulator_op(&mut self, op: u8) {
+        let a = self.regs.a;
+        let carry = self.regs.flag(Flag::Carry);
+        if op < 4 {
+            // Rotasi: bit yang "jatuh" dari ujung masuk ke flag C.
+            // RLCA/RRCA memutar 8 bit; RLA/RRA memutar 9 bit lewat C.
+            let (result, out) = match op {
+                0 => (a.rotate_left(1), a >> 7),
+                1 => (a.rotate_right(1), a & 1),
+                2 => ((a << 1) | u8::from(carry), a >> 7),
+                _ => ((a >> 1) | (u8::from(carry) << 7), a & 1),
+            };
+            self.regs.a = result;
+            // Versi "A" selalu mematikan Z, berbeda dengan versi CB (M2).
+            self.regs.set_flag(Flag::Zero, false);
+            self.regs.set_flag(Flag::Subtract, false);
+            self.regs.set_flag(Flag::HalfCarry, false);
+            self.regs.set_flag(Flag::Carry, out == 1);
+            return;
+        }
+        match op {
+            4 => self.daa(),
+            // CPL: balik semua bit A.
+            5 => {
+                self.regs.a = !a;
+                self.regs.set_flag(Flag::Subtract, true);
+                self.regs.set_flag(Flag::HalfCarry, true);
+            }
+            // SCF: nyalakan carry. CCF: balik carry.
+            _ => {
+                self.regs.set_flag(Flag::Subtract, false);
+                self.regs.set_flag(Flag::HalfCarry, false);
+                self.regs.set_flag(Flag::Carry, op == 6 || !carry);
+            }
+        }
+    }
+
+    /// DAA: koreksi A menjadi BCD (dua digit desimal, satu per 4 bit)
+    /// setelah ADD/SUB. Contoh: 0x15 + 0x27 = 0x3C, lalu DAA → 0x42.
+    ///
+    /// Arah koreksi bergantung pada N (operasi terakhir tambah atau kurang),
+    /// besarnya bergantung pada H, C, dan nilai A.
+    fn daa(&mut self) {
+        let mut a = self.regs.a;
+        let mut carry = self.regs.flag(Flag::Carry);
+        let half = self.regs.flag(Flag::HalfCarry);
+        if self.regs.flag(Flag::Subtract) {
+            if carry {
+                a = a.wrapping_sub(0x60);
+            }
+            if half {
+                a = a.wrapping_sub(0x06);
+            }
+        } else {
+            if carry || a > 0x99 {
+                a = a.wrapping_add(0x60);
+                carry = true;
+            }
+            if half || a & 0x0F > 0x09 {
+                a = a.wrapping_add(0x06);
+            }
+        }
+        self.regs.a = a;
+        self.regs.set_flag(Flag::Zero, a == 0);
+        self.regs.set_flag(Flag::HalfCarry, false);
         self.regs.set_flag(Flag::Carry, carry);
     }
 

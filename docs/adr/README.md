@@ -14,6 +14,7 @@ Lihat [ADR-0001](0001-catat-keputusan-dengan-adr.md) untuk alasannya.
 | [0004](0004-gbdk-2020-untuk-rom-c.md) | GBDK-2020 untuk ROM homebrew dalam C | Diterima |
 | [0005](0005-strategi-tes.md) | Strategi tes: unit, ROM uji, golden test | Diterima |
 | [0006](0006-lisensi.md) | Lisensi kode & kebijakan ROM | Diterima |
+| [0007](0007-ci-dan-deploy.md) | CI dan deploy: satu workflow, GitHub Pages lewat Actions | Diterima |
 
 ## Template
 

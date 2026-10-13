@@ -1,0 +1,13 @@
+[package]
+name = "gb-core"
+description = "Inti emulator Game Boy (DMG): no_std, tanpa I/O, deterministik."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Sengaja tanpa [dependencies]: core tidak bergantung pada crate eksternal (ADR-0002).
+
+[lints]
+workspace = true

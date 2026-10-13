@@ -1108,3 +1108,59 @@ fn every_cb_opcode_runs_with_documented_cycles() {
         assert_eq!(cpu.step(&mut bus), Ok(expected), "CB {cb:#04X}");
     }
 }
+
+// ---------------------------------------------------------------------------
+// DI / EI (saklar IME). Lompatan ke interrupt menyusul di M3.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ime_starts_disabled() {
+    assert!(!Cpu::new().interrupts_enabled());
+}
+
+#[test]
+fn ei_takes_effect_after_the_next_instruction() {
+    // EI ; NOP ; NOP
+    let (mut cpu, mut bus) = setup(&[0xFB, 0x00, 0x00]);
+    assert_eq!(step(&mut cpu, &mut bus), 4);
+    assert!(!cpu.interrupts_enabled(), "belum menyala tepat setelah EI");
+    step(&mut cpu, &mut bus);
+    assert!(
+        cpu.interrupts_enabled(),
+        "menyala setelah instruksi berikutnya"
+    );
+}
+
+#[test]
+fn di_right_after_ei_cancels_it() {
+    // EI ; DI ; NOP → IME tetap mati.
+    let (mut cpu, mut bus) = setup(&[0xFB, 0xF3, 0x00]);
+    for _ in 0..3 {
+        step(&mut cpu, &mut bus);
+        assert!(!cpu.interrupts_enabled());
+    }
+}
+
+#[test]
+fn di_disables_immediately() {
+    // EI ; NOP ; DI
+    let (mut cpu, mut bus) = setup(&[0xFB, 0x00, 0xF3]);
+    step(&mut cpu, &mut bus);
+    step(&mut cpu, &mut bus);
+    assert!(cpu.interrupts_enabled());
+    assert_eq!(step(&mut cpu, &mut bus), 4);
+    assert!(!cpu.interrupts_enabled());
+}
+
+#[test]
+fn reti_returns_and_enables_ime_immediately() {
+    // RETI dengan alamat kembali 0x4000 di stack.
+    let (mut cpu, mut bus) = setup(&[0xD9]);
+    cpu.regs.sp = 0xC000;
+    bus.write(0xC000, 0x00);
+    bus.write(0xC001, 0x40);
+    assert_eq!(step(&mut cpu, &mut bus), 16);
+    assert_eq!((cpu.regs.pc, cpu.regs.sp), (0x4000, 0xC002));
+    // Berbeda dengan EI: langsung menyala, tanpa menunggu instruksi berikutnya.
+    assert!(cpu.interrupts_enabled());
+}

@@ -5,9 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0e0e0e">
   <title>mxm-gameboy</title>
-  <link rel="stylesheet" href="style.css">
-  <!-- main.js memuat file .wasm hasil build gb-web (lihat tools/build-web.sh). -->
-  <script type="module" src="main.js"></script>
+  <link rel="stylesheet" href="style.css?v=__BUILD__">
+  <!-- main.js memuat file .wasm hasil build gb-web (lihat tools/build-web.sh).
+       Penanda versi di URL diganti versi build saat build (cache busting, ADR-0009). -->
+  <script type="module" src="main.js?v=__BUILD__"></script>
 </head>
 <body>
   <main class="console">

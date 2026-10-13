@@ -97,7 +97,7 @@ cargo run -p gb-headless
 
 ```powershell
 .\tools\build-web.ps1
-cd web
+cd dist
 python -m http.server 8000
 ```
 

@@ -18,6 +18,7 @@ Lihat [ADR-0001](0001-catat-keputusan-dengan-adr.md) untuk alasannya.
 | [0008](0008-identitas-visual-mxm.md) | Identitas visual: palet MXM | Diterima |
 | [0009](0009-cache-busting.md) | Cache busting: folder dist/ dan versi build di URL | Diterima |
 | [0010](0010-bentuk-cpu.md) | Bentuk CPU: trait Bus, decode lewat pola bit, siklus dalam T-cycle | Diterima |
+| [0011](0011-waktu-dan-interrupt.md) | Waktu dan interrupt: komponen dimajukan setelah setiap instruksi | Diterima |
 
 ## Template
 

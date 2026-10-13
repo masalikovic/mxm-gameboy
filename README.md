@@ -40,7 +40,7 @@ Detail pemasangan alat untuk Windows: [docs/setup-windows.md](docs/setup-windows
 | M0 | Visi, ADR, setup, kerangka repo, CI, GitHub Pages | ✅ selesai ([jurnal](docs/jurnal/m0.md)) |
 | M1 | CPU bagian 1: register, flag, bus, 239/244 opcode | ✅ selesai ([jurnal](docs/jurnal/m1.md)) |
 | M2 | CPU lengkap: prefix CB, ROM uji Blargg (10/11 lulus) | ✅ selesai ([jurnal](docs/jurnal/m2.md)) |
-| M3 | Timer & interrupt, HALT; target 11/11 Blargg | ⏭️ berikutnya |
+| M3 | Timer & interrupt, HALT (11/11 Blargg ✅); homebrew C pertama | 🚧 sedang berjalan |
 | M4–M8 | PPU → input → cartridge → audio → debugger | belum mulai |
 
 ## Legal

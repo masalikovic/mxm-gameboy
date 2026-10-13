@@ -52,7 +52,14 @@ pub struct Cpu {
     ime: bool,
     /// `EI` baru menyalakan IME **setelah** instruksi berikutnya selesai.
     ei_pending: bool,
+    /// CPU sedang `HALT`: diam sampai ada interrupt yang menunggu.
+    halted: bool,
 }
+
+/// Alamat register IF: interrupt yang **diminta** (bit 0–4).
+const IF: u16 = 0xFF0F;
+/// Alamat register IE: interrupt yang **diizinkan** (bit 0–4).
+const IE: u16 = 0xFFFF;
 
 impl Default for Cpu {
     fn default() -> Self {
@@ -85,6 +92,7 @@ impl Cpu {
             regs,
             ime: false,
             ei_pending: false,
+            halted: false,
         }
     }
 
@@ -95,6 +103,19 @@ impl Cpu {
     /// [`CpuError::Unimplemented`] kalau opcode belum ditulis. Register tidak
     /// berubah dalam kasus itu.
     pub fn step(&mut self, bus: &mut impl Bus) -> Result<u8, CpuError> {
+        // Interrupt yang diminta (IF) DAN diizinkan (IE). Hanya bit 0–4 berarti.
+        let pending = bus.read(IF) & bus.read(IE) & 0x1F;
+        if self.halted {
+            if pending == 0 {
+                return Ok(4); // tetap tidur; waktu tetap berjalan
+            }
+            // Bangun karena ada interrupt yang menunggu, walaupun IME mati.
+            self.halted = false;
+        }
+        if self.ime && pending != 0 {
+            return Ok(self.service_interrupt(bus, pending));
+        }
+
         let address = self.regs.pc;
         let enable_ime_after = self.ei_pending;
         let opcode = self.fetch(bus);
@@ -134,6 +155,36 @@ impl Cpu {
             self.ime = false;
             self.ei_pending = false;
         }
+    }
+
+    /// Melompat ke penangan interrupt dengan prioritas tertinggi di `pending`.
+    ///
+    /// | bit | interrupt | alamat penangan |
+    /// |---|---|---|
+    /// | 0 | V-blank (layar selesai digambar) | 0x40 |
+    /// | 1 | STAT (keadaan LCD) | 0x48 |
+    /// | 2 | Timer (TIMA meluap) | 0x50 |
+    /// | 3 | Serial | 0x58 |
+    /// | 4 | Joypad (tombol ditekan) | 0x60 |
+    ///
+    /// Bit terendah menang. IME dimatikan supaya penangan tidak disela
+    /// interrupt lain, bit IF-nya dimatikan, alamat kembali disimpan di stack.
+    /// Penangan biasanya diakhiri `RETI`. Memakan 20 siklus.
+    fn service_interrupt(&mut self, bus: &mut impl Bus, pending: u8) -> u8 {
+        let bit = pending.trailing_zeros(); // 0–4, karena pending ≠ 0
+        self.ime = false;
+        self.ei_pending = false;
+        let requested = bus.read(IF);
+        bus.write(IF, requested & !(1 << bit));
+        self.push(bus, self.regs.pc);
+        self.regs.pc = 0x40 + 8 * u16::try_from(bit).unwrap_or(0);
+        20
+    }
+
+    /// Apakah CPU sedang `HALT`.
+    #[must_use]
+    pub const fn is_halted(&self) -> bool {
+        self.halted
     }
 
     /// Apakah IME (saklar utama interrupt) sedang menyala.
@@ -249,6 +300,15 @@ impl Cpu {
                 4
             }
 
+            // STOP: 2 byte (byte kedua diabaikan). Di DMG asli CPU dan layar
+            // berhenti sampai tombol ditekan. Penyederhanaan: diperlakukan
+            // seperti HALT. Game DMG hampir tidak pernah memakainya.
+            0x10 => {
+                self.fetch(bus);
+                self.halted = true;
+                4
+            }
+
             _ => return None,
         };
         Some(cycles)
@@ -260,8 +320,13 @@ impl Cpu {
         let z = opcode & 0b111;
         let cycles = match opcode {
             // HALT ada di tengah blok LD (0x76 akan menjadi "LD (HL),(HL)").
-            // Ia butuh interrupt, jadi ditulis di M3.
-            0x76 => return None,
+            // CPU tidur sampai ada interrupt yang menunggu (lihat `step`).
+            // Belum ditiru: "HALT bug" saat IME mati dan interrupt sudah
+            // menunggu ketika HALT dijalankan.
+            0x76 => {
+                self.halted = true;
+                4
+            }
 
             // LD r,r': salin register sumber ke register tujuan.
             0x40..=0x7F => {

@@ -11,7 +11,7 @@
 #   fail:<alasan> belum bisa lulus karena komponennya belum dibangun. Kalau
 #                 ternyata lulus, CI juga merah: ubah baris ini menjadi "pass".
 fe61349cbaee10cc384b50f356e541c90d1bc380185716706b5d8c465a03cf89	01-special.gb	cpu_instrs/individual/01-special.gb	pass
-fb90b0d2b9501910c49709abda1d8e70f757dc12020ebf8409a7779bbfd12229	02-interrupts.gb	cpu_instrs/individual/02-interrupts.gb	fail:M3-interrupt
+fb90b0d2b9501910c49709abda1d8e70f757dc12020ebf8409a7779bbfd12229	02-interrupts.gb	cpu_instrs/individual/02-interrupts.gb	pass
 ca553e606d9b9c86fbd318f1b916c6f0b9df0cf1774825d4361a3fdff2e5a136	03-op_sp_hl.gb	cpu_instrs/individual/03-op sp,hl.gb	pass
 7686aa7a39ef3d2520ec1037371b5f94dc283fbbfd0f5051d1f64d987bdd6671	04-op_r_imm.gb	cpu_instrs/individual/04-op r,imm.gb	pass
 d504adfa0a4c4793436a154f14492f044d38b3c6db9efc44138f3c9ad138b775	05-op_rp.gb	cpu_instrs/individual/05-op rp.gb	pass

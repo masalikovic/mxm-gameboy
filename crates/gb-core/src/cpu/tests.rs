@@ -268,11 +268,13 @@ fn unimplemented_opcode_leaves_cpu_unchanged() {
 
 #[test]
 fn halt_is_not_treated_as_ld() {
-    let (mut cpu, mut bus) = setup(&[0x76]);
-    assert!(matches!(
-        cpu.step(&mut bus),
-        Err(CpuError::Unimplemented { opcode: 0x76, .. })
-    ));
+    // 0x76 ada di tengah blok LD r,r'. Kalau salah di-decode, ia akan menjadi
+    // "LD (HL),(HL)" dan CPU lanjut ke instruksi berikutnya.
+    let (mut cpu, mut bus) = setup(&[0x76, 0x3C]); // HALT ; INC A
+    assert_eq!(step(&mut cpu, &mut bus), 4);
+    assert!(cpu.is_halted());
+    step(&mut cpu, &mut bus); // masih tidur: INC A tidak dijalankan
+    assert_eq!((cpu.regs.a, cpu.regs.pc), (0, START + 1));
 }
 
 // ---------------------------------------------------------------------------
@@ -1163,4 +1165,131 @@ fn reti_returns_and_enables_ime_immediately() {
     assert_eq!((cpu.regs.pc, cpu.regs.sp), (0x4000, 0xC002));
     // Berbeda dengan EI: langsung menyala, tanpa menunggu instruksi berikutnya.
     assert!(cpu.interrupts_enabled());
+}
+
+// ---------------------------------------------------------------------------
+// Interrupt dan HALT (IF = 0xFF0F, IE = 0xFFFF)
+// ---------------------------------------------------------------------------
+
+/// CPU dengan IME menyala, SP = 0xD000, dan IF/IE seperti diberikan.
+fn with_interrupts(program: &[u8], requested: u8, enabled: u8) -> (Cpu, FlatBus) {
+    // EI ; NOP lalu program: setelah 2 langkah IME menyala.
+    let mut code = alloc::vec::Vec::from([0xFB, 0x00]);
+    code.extend_from_slice(program);
+    let (mut cpu, mut bus) = setup(&code);
+    cpu.regs.sp = 0xD000;
+    step(&mut cpu, &mut bus);
+    step(&mut cpu, &mut bus);
+    assert!(cpu.interrupts_enabled());
+    bus.write(0xFF0F, requested);
+    bus.write(0xFFFF, enabled);
+    (cpu, bus)
+}
+
+#[test]
+fn interrupt_jumps_to_handler_and_saves_return_address() {
+    let (mut cpu, mut bus) = with_interrupts(&[0x00], 0b0_0100, 0b0_0100); // timer
+    let return_to = cpu.regs.pc;
+    assert_eq!(step(&mut cpu, &mut bus), 20);
+    assert_eq!(cpu.regs.pc, 0x0050);
+    assert_eq!(cpu.regs.sp, 0xCFFE);
+    let saved = u16::from_le_bytes([bus.read(0xCFFE), bus.read(0xCFFF)]);
+    assert_eq!(saved, return_to);
+    // IME mati (penangan tidak disela) dan bit IF timer sudah dimatikan.
+    assert!(!cpu.interrupts_enabled());
+    assert_eq!(bus.read(0xFF0F), 0);
+}
+
+#[test]
+fn each_interrupt_has_its_own_handler_address() {
+    for (bit, address) in [(0, 0x40), (1, 0x48), (2, 0x50), (3, 0x58), (4, 0x60)] {
+        let (mut cpu, mut bus) = with_interrupts(&[0x00], 1 << bit, 1 << bit);
+        step(&mut cpu, &mut bus);
+        assert_eq!(cpu.regs.pc, address, "bit {bit}");
+    }
+}
+
+#[test]
+fn lowest_bit_wins_and_others_stay_requested() {
+    // Timer (bit 2) dan serial (bit 3) diminta bersamaan: timer menang.
+    let (mut cpu, mut bus) = with_interrupts(&[0x00], 0b0_1100, 0b1_1111);
+    step(&mut cpu, &mut bus);
+    assert_eq!(cpu.regs.pc, 0x0050);
+    assert_eq!(
+        bus.read(0xFF0F),
+        0b0_1000,
+        "permintaan serial tetap menunggu"
+    );
+}
+
+#[test]
+fn requested_but_not_enabled_is_ignored() {
+    // IF meminta timer, tetapi IE hanya mengizinkan V-blank.
+    let (mut cpu, mut bus) = with_interrupts(&[0x3C], 0b0_0100, 0b0_0001); // INC A
+    let before = cpu.regs.pc;
+    assert_eq!(step(&mut cpu, &mut bus), 4);
+    assert_eq!(cpu.regs.pc, before + 1, "instruksi biasa yang jalan");
+}
+
+#[test]
+fn no_interrupt_while_ime_is_off() {
+    let (mut cpu, mut bus) = setup(&[0x3C]); // IME mati (keadaan awal)
+    bus.write(0xFF0F, 0b0_0001);
+    bus.write(0xFFFF, 0b0_0001);
+    step(&mut cpu, &mut bus);
+    assert_eq!(cpu.regs.a, 1);
+    assert_eq!(bus.read(0xFF0F), 0b0_0001, "permintaan tetap menunggu");
+}
+
+#[test]
+fn ei_lets_one_instruction_run_before_the_interrupt() {
+    // EI ; INC A ; INC A, dengan interrupt sudah menunggu sejak awal.
+    let (mut cpu, mut bus) = setup(&[0xFB, 0x3C, 0x3C]);
+    cpu.regs.sp = 0xD000;
+    bus.write(0xFF0F, 0b0_0001);
+    bus.write(0xFFFF, 0b0_0001);
+    step(&mut cpu, &mut bus); // EI
+    step(&mut cpu, &mut bus); // INC A pertama tetap jalan
+    assert_eq!(cpu.regs.a, 1);
+    step(&mut cpu, &mut bus); // baru sekarang interrupt masuk
+    assert_eq!(cpu.regs.pc, 0x0040);
+    assert_eq!(cpu.regs.a, 1);
+}
+
+#[test]
+fn halt_sleeps_until_an_interrupt_is_pending() {
+    let (mut cpu, mut bus) = setup(&[0x76, 0x3C]); // HALT ; INC A
+    bus.write(0xFFFF, 0b0_0100);
+    step(&mut cpu, &mut bus);
+    for _ in 0..10 {
+        assert_eq!(step(&mut cpu, &mut bus), 4, "tidur 4 siklus per langkah");
+    }
+    assert_eq!(cpu.regs.a, 0);
+    bus.write(0xFF0F, 0b0_0100);
+    // IME mati: CPU bangun dan lanjut TANPA melompat ke penangan.
+    step(&mut cpu, &mut bus);
+    assert!(!cpu.is_halted());
+    assert_eq!(cpu.regs.a, 1);
+    assert_eq!(cpu.regs.pc, START + 2);
+}
+
+#[test]
+fn halt_with_ime_wakes_into_the_handler() {
+    let (mut cpu, mut bus) = with_interrupts(&[0x76, 0x3C], 0, 0b0_0001); // HALT ; INC A
+    step(&mut cpu, &mut bus);
+    assert!(cpu.is_halted());
+    bus.write(0xFF0F, 0b0_0001);
+    assert_eq!(step(&mut cpu, &mut bus), 20);
+    assert_eq!(cpu.regs.pc, 0x0040);
+    // Alamat kembali = instruksi setelah HALT (INC A).
+    let saved = u16::from_le_bytes([bus.read(0xCFFE), bus.read(0xCFFF)]);
+    assert_eq!(saved, START + 3);
+}
+
+#[test]
+fn stop_skips_its_second_byte_and_sleeps() {
+    let (mut cpu, mut bus) = setup(&[0x10, 0x00, 0x3C]); // STOP 0 ; INC A
+    assert_eq!(step(&mut cpu, &mut bus), 4);
+    assert!(cpu.is_halted());
+    assert_eq!(cpu.regs.pc, START + 2);
 }

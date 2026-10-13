@@ -7,10 +7,11 @@
 // Penanda versi pada URL di bawah diganti versi build oleh tools/build-web.sh (ADR-0009):
 // URL berubah setiap build, jadi browser tidak memakai file lama dari cache.
 import init, { coreVersion, Emulator } from './pkg/gb_web.js?v=__BUILD__';
+import { attachInput } from './input.js?v=__BUILD__';
 
 const wasmUrl = new URL('./pkg/gb_web_bg.wasm?v=__BUILD__', import.meta.url);
-// ROM demo: dibuild dari homebrew/layar/main.c di CI (ADR-0006).
-const demoRomUrl = new URL('./roms/layar.gb?v=__BUILD__', import.meta.url);
+// ROM demo: dibuild dari homebrew/<nama>/main.c di CI (ADR-0006).
+const demoUrl = (file) => new URL(`./roms/${file}?v=__BUILD__`, import.meta.url);
 
 // Versi build yang sedang tampil, supaya mudah dicek di HP tanpa membuka
 // kode sumber. Contoh: "14bd9ac" (hash commit), atau "14bd9ac+lokal" kalau
@@ -31,6 +32,14 @@ const status = document.getElementById('status');
 const build = document.getElementById('build');
 const perf = document.getElementById('perf');
 const romInput = document.getElementById('rom-input');
+const demo = document.getElementById('demo');
+
+// Sentuhan + keyboard → bit tombol → gb-core (lewat gb-web).
+const input = attachInput({
+  dpad: document.getElementById('dpad'),
+  buttons: [...document.querySelectorAll('.pad button[data-button]')],
+  onChange: (mask) => emulator?.setButtons(mask),
+});
 
 /** Palet 4 tingkat dari CSS (--lcd-0 gelap … --lcd-3 terang, ADR-0008). */
 function readPalette() {
@@ -116,6 +125,7 @@ function start(bytes, name) {
     stop(`${error}`);
     return;
   }
+  emulator.setButtons(input.mask); // tombol yang sudah ditahan sebelum ROM dimuat
   screenText.hidden = true;
   status.textContent = `ROM: ${name}`;
   running = true;
@@ -129,15 +139,25 @@ romInput.addEventListener('change', async () => {
   if (file) start(new Uint8Array(await file.arrayBuffer()), file.name);
 });
 
-try {
-  await init({ module_or_path: wasmUrl }); // mengunduh dan menyiapkan .wasm
-  build.textContent = `gb-core ${coreVersion()} · build ${buildLabel}`;
-  const response = await fetch(demoRomUrl);
+/** Memuat salah satu ROM homebrew kita yang ikut dideploy. */
+async function startDemo(file) {
+  const response = await fetch(demoUrl(file));
   if (response.ok) {
-    start(new Uint8Array(await response.arrayBuffer()), 'layar.gb (demo, homebrew C)');
+    start(new Uint8Array(await response.arrayBuffer()), `${file} (demo, homebrew C)`);
   } else {
     stop('ROM demo belum ada di build ini. Muat file .gb di bawah.');
   }
+}
+
+demo.addEventListener('change', () => {
+  startDemo(demo.value);
+  demo.blur(); // supaya tombol panah kembali menggerakkan game
+});
+
+try {
+  await init({ module_or_path: wasmUrl }); // mengunduh dan menyiapkan .wasm
+  build.textContent = `gb-core ${coreVersion()} · build ${buildLabel}`;
+  await startDemo(demo.value);
 } catch (error) {
   stop(`Error: ${error.message ?? error}`);
   console.error(error);

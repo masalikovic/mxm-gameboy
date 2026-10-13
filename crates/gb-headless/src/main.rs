@@ -3,9 +3,13 @@
 //! ```text
 //! gb-headless                        mencetak sapaan (smoke test M0)
 //! gb-headless <rom.gb> [maks-siklus] menjalankan ROM, menilai keluaran serial
-//! gb-headless <rom.gb> --frames N [--screenshot layar.pgm]
+//! gb-headless <rom.gb> --frames N [--hold right,a] [--screenshot layar.pgm]
 //!                                    menjalankan N frame, mencetak hash layar
 //! ```
+//!
+//! `--hold` menahan tombol selama semua frame (right, left, up, down, a, b,
+//! select, start). Dengan begitu golden test bisa membuktikan bahwa input
+//! benar-benar sampai ke game, tanpa manusia menekan tombol.
 //!
 //! Saat menjalankan ROM, semua byte yang dikirim lewat port serial dicetak ke
 //! terminal. ROM uji Blargg mencetak hasilnya lewat jalur itu, diakhiri
@@ -21,6 +25,7 @@
 use std::io::Write;
 use std::process::ExitCode;
 
+use gb_core::joypad::{Button, Buttons};
 use gb_core::machine::GameBoy;
 
 /// Batas bawaan: ±60 detik waktu Game Boy (4.194.304 siklus per detik).
@@ -57,14 +62,31 @@ fn main() -> ExitCode {
 /// simpan gambar PGM. Hash dipakai golden test (ADR-0005): layar yang sama
 /// persis selalu menghasilkan hash yang sama, karena core deterministik.
 fn screen_mode(path: &str, args: &[String]) -> ExitCode {
+    const USAGE: &str =
+        "Pakai: gb-headless <rom.gb> --frames N [--hold right,a] [--screenshot layar.pgm]";
     let Some(Ok(frames)) = args.first().map(|s| s.parse::<u32>()) else {
-        eprintln!("Pakai: gb-headless <rom.gb> --frames N [--screenshot layar.pgm]");
+        eprintln!("{USAGE}");
         return ExitCode::from(2);
     };
-    let screenshot = match args.get(1).map(String::as_str) {
-        Some("--screenshot") => args.get(2),
-        _ => None,
-    };
+    let mut screenshot = None;
+    let mut held = Buttons(0);
+    let mut rest = args[1..].iter();
+    while let Some(flag) = rest.next() {
+        match (flag.as_str(), rest.next()) {
+            ("--screenshot", Some(file)) => screenshot = Some(file),
+            ("--hold", Some(names)) => match parse_buttons(names) {
+                Ok(buttons) => held = buttons,
+                Err(name) => {
+                    eprintln!("Tombol tidak dikenal: {name}");
+                    return ExitCode::from(2);
+                }
+            },
+            _ => {
+                eprintln!("{USAGE}");
+                return ExitCode::from(2);
+            }
+        }
+    }
     let rom = match std::fs::read(path) {
         Ok(rom) => rom,
         Err(error) => {
@@ -73,6 +95,7 @@ fn screen_mode(path: &str, args: &[String]) -> ExitCode {
         }
     };
     let mut gb = GameBoy::new(rom.into_boxed_slice());
+    gb.set_buttons(held);
     for _ in 0..frames {
         if let Err(error) = gb.run_frame() {
             eprintln!("Berhenti: {error:?}");
@@ -87,6 +110,25 @@ fn screen_mode(path: &str, args: &[String]) -> ExitCode {
         return ExitCode::from(2);
     }
     ExitCode::SUCCESS
+}
+
+/// "right,a" → `Buttons` dengan bit kanan dan A. Nama yang salah dikembalikan
+/// sebagai error supaya salah ketik di `screen.hash` tidak lolos diam-diam.
+fn parse_buttons(names: &str) -> Result<Buttons, &str> {
+    names.split(',').try_fold(Buttons(0), |buttons, name| {
+        let button = match name {
+            "right" => Button::Right,
+            "left" => Button::Left,
+            "up" => Button::Up,
+            "down" => Button::Down,
+            "a" => Button::A,
+            "b" => Button::B,
+            "select" => Button::Select,
+            "start" => Button::Start,
+            _ => return Err(name),
+        };
+        Ok(Buttons(buttons.0 | button as u8))
+    })
 }
 
 /// Hash FNV-1a 64-bit: sederhana, cukup untuk mendeteksi perubahan layar.
@@ -143,4 +185,19 @@ fn run(mut gb: GameBoy, max_cycles: u64) -> ExitCode {
     }
     eprintln!("\nBatas {max_cycles} siklus habis tanpa \"Passed\" atau \"Failed\".");
     ExitCode::from(2)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_buttons;
+
+    #[test]
+    fn button_names_become_bits() {
+        assert_eq!(parse_buttons("right").map(|b| b.0), Ok(0x01));
+        assert_eq!(
+            parse_buttons("up,a,start").map(|b| b.0),
+            Ok(0x04 | 0x10 | 0x80)
+        );
+        assert_eq!(parse_buttons("left,kanan").map(|b| b.0), Err("kanan"));
+    }
 }

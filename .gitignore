@@ -1,0 +1,19 @@
+# Output build Rust
+/target/
+
+# Hasil wasm-bindgen (dibuat ulang saat build/deploy)
+/web/pkg/
+
+# ROM uji pihak ketiga — diunduh saat tes, tidak pernah di-commit (ADR-0006)
+/test-roms/
+
+# Hasil build GBDK — ROM homebrew dibuat dari sumber C di CI, jadi tidak perlu di-commit
+/homebrew/**/build/
+*.gb
+*.gbc
+
+# Editor & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

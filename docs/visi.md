@@ -112,8 +112,9 @@ adalah **jumlah siklus CPU**. Frontend-lah yang memutuskan kapan `run_frame()` d
 ## 8. Definisi "selesai" untuk M0
 
 - [x] Dokumen ini dan ADR 0001–0006 ada di `main`.
-- [ ] Panduan setup Windows 10 bisa diikuti sampai `cargo test` jalan di laptop.
-      (Belum dicoba di laptop pemilik.)
+- [x] Panduan setup Windows 10 bisa diikuti sampai `cargo test` jalan di laptop.
+      (Diverifikasi pemilik di laptop Windows 10, 2026-10-13: 3 tes lulus;
+      `build-web.ps1` + server lokal juga dibuka dari HP lewat Wi-Fi.)
 - [x] Kerangka workspace Rust ter-compile; `cargo test` hijau di CI.
 - [x] Link GitHub Pages menampilkan **"Halo dari emulator"** — teks itu berasal dari
       fungsi Rust yang dipanggil lewat WebAssembly — dan terbuka di HP Android.

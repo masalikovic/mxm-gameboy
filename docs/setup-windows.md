@@ -114,6 +114,7 @@ python -m http.server 8000
 |---|---|
 | `link.exe not found` saat `cargo build` | Build Tools MSVC belum terpasang / workload C++ belum dicentang. Ulangi langkah 2. |
 | `cargo` tidak dikenal | PowerShell lama masih terbuka. Tutup semua, buka baru. |
+| `could not find Cargo.toml` | PowerShell belum berada di folder repo. Jalankan `cd $HOME\Documents\mxm-gameboy` dulu (atau lokasi clone Anda). |
 | HP tidak bisa membuka halaman | Beda jaringan, atau firewall memblokir. Cek langkah 7.4. |
 | Antivirus memperlambat build | Tambahkan folder `target\` proyek ke pengecualian antivirus (opsional). |
 

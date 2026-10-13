@@ -1,0 +1,12 @@
+# Semua orang (laptop Windows, CI, sesi Claude) memakai compiler yang sama.
+# rustup membaca file ini otomatis dan memasang versi, komponen, dan target
+# yang tercantum saat perintah cargo pertama dijalankan di folder repo.
+[toolchain]
+channel = "1.97.0"
+components = ["rustfmt", "clippy"]
+# wasm32: untuk gb-web (browser).
+# thumbv7em-none-eabihf: target mikrokontroler ARM tanpa sistem operasi.
+#   gb-core di-build untuk target ini di CI sebagai bukti bahwa core benar-benar
+#   tidak memakai std (ADR-0002) — dan sekaligus jembatan ke rencana belajar embedded.
+targets = ["wasm32-unknown-unknown", "thumbv7em-none-eabihf"]
+profile = "minimal"

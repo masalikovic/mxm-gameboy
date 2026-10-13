@@ -16,6 +16,7 @@ Lihat [ADR-0001](0001-catat-keputusan-dengan-adr.md) untuk alasannya.
 | [0006](0006-lisensi.md) | Lisensi kode & kebijakan ROM | Diterima |
 | [0007](0007-ci-dan-deploy.md) | CI dan deploy: satu workflow, GitHub Pages lewat Actions | Diterima |
 | [0008](0008-identitas-visual-mxm.md) | Identitas visual: palet MXM | Diterima |
+| [0009](0009-cache-busting.md) | Cache busting: folder dist/ dan versi build di URL | Diterima |
 
 ## Template
 

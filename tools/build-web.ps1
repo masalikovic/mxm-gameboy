@@ -1,4 +1,4 @@
-# Build halaman web di Windows (PowerShell): gb-web → .wasm → lem JS di web/pkg/.
+# Build halaman web di Windows (PowerShell): gb-web → .wasm → lem JS, lalu rakit dist/.
 # Isinya sama dengan tools/build-web.sh; lihat komentar di sana untuk alasannya.
 # Jalankan dari folder repo:  .\tools\build-web.ps1
 $ErrorActionPreference = 'Stop'
@@ -20,9 +20,22 @@ if ($installed -ne $expected) {
 cargo build -p gb-web --release --target wasm32-unknown-unknown
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-# 3. Buat lem JavaScript (ES module).
-wasm-bindgen --target web --no-typescript --out-dir web/pkg `
+# 3. Rakit dist/ dari web/ (sumber halaman), mulai dari folder kosong.
+if (Test-Path dist) { Remove-Item dist -Recurse -Force }
+Copy-Item web dist -Recurse
+
+# 4. Buat lem JavaScript (ES module).
+wasm-bindgen --target web --no-typescript --out-dir dist/pkg `
     target/wasm32-unknown-unknown/release/gb_web.wasm
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host 'Selesai: web/pkg/ siap. Coba lokal: cd web; python -m http.server 8000'
+# 5. Cache busting (ADR-0009): ganti __BUILD__ dengan versi build.
+$build = (git rev-parse --short=12 HEAD 2>$null)
+if (-not $build) { $build = 'lokal' }
+if (git status --porcelain 2>$null) { $build = "$build-$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" }
+foreach ($file in 'dist/index.html', 'dist/main.js') {
+    $text = [IO.File]::ReadAllText((Resolve-Path $file)) -replace '__BUILD__', $build
+    [IO.File]::WriteAllText((Resolve-Path $file), $text)
+}
+
+Write-Host "Selesai: dist/ siap (build $build). Coba lokal: cd dist; python -m http.server 8000"

@@ -1,7 +1,8 @@
 # Output build Rust
 /target/
 
-# Hasil wasm-bindgen (dibuat ulang saat build/deploy)
+# Hasil build web: dist/ dirakit dari web/ + wasm (ADR-0009)
+/dist/
 /web/pkg/
 
 # ROM uji pihak ketiga — diunduh saat tes, tidak pernah di-commit (ADR-0006)

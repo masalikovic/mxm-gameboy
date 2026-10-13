@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build halaman web: gb-web (Rust) → .wasm → lem JavaScript di web/pkg/.
+# Build halaman web: gb-web (Rust) → .wasm → lem JavaScript, lalu rakit dist/.
+# web/ adalah SUMBER (di-commit); dist/ adalah HASIL (tidak di-commit, ADR-0009).
 # Dipakai di CI dan di Linux/macOS. Versi Windows: tools/build-web.ps1.
 # Langkah-langkahnya sengaja terlihat satu per satu (ADR-0003).
 set -euo pipefail
@@ -25,8 +26,22 @@ fi
 # 2. Compile adapter browser ke WebAssembly.
 cargo build -p gb-web --release --target wasm32-unknown-unknown
 
-# 3. Buat lem JavaScript (ES module) yang memanggil fungsi #[wasm_bindgen].
-wasm-bindgen --target web --no-typescript --out-dir web/pkg \
+# 3. Rakit dist/ dari web/ (sumber halaman), mulai dari folder kosong.
+rm -rf dist
+cp -R web dist
+
+# 4. Buat lem JavaScript (ES module) yang memanggil fungsi #[wasm_bindgen].
+wasm-bindgen --target web --no-typescript --out-dir dist/pkg \
   target/wasm32-unknown-unknown/release/gb_web.wasm
 
-echo "Selesai: web/pkg/ siap. Coba lokal: cd web && python3 -m http.server 8000"
+# 5. Cache busting (ADR-0009): ganti __BUILD__ dengan versi build, supaya
+#    URL file berubah setiap build dan browser HP tidak memakai file lama.
+#    Versi = hash commit; kalau ada perubahan yang belum di-commit, ditambah waktu.
+build="$(git rev-parse --short=12 HEAD 2>/dev/null || echo lokal)"
+if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
+  build="${build}-$(date +%s)"
+fi
+sed -i.bak "s/__BUILD__/${build}/g" dist/index.html dist/main.js
+rm -f dist/index.html.bak dist/main.js.bak
+
+echo "Selesai: dist/ siap (build ${build}). Coba lokal: cd dist && python3 -m http.server 8000"

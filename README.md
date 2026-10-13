@@ -22,8 +22,8 @@ diperbarui setiap ada perubahan yang masuk ke `main` dan lulus CI (ADR-0007).
 ```text
 cargo test                     # unit test semua crate
 cargo run -p gb-headless       # adapter command line
-./tools/build-web.sh           # build web (Windows: .\tools\build-web.ps1)
-cd web && python3 -m http.server 8000
+./tools/build-web.sh           # build web ke dist/ (Windows: .\tools\build-web.ps1)
+cd dist && python3 -m http.server 8000
 ```
 
 Detail pemasangan alat untuk Windows: [docs/setup-windows.md](docs/setup-windows.md).

@@ -1,10 +1,10 @@
 # Satu workflow untuk cek kode dan deploy halaman (ADR-0007).
 #
-#   check ──┐
-#           ├──▶ deploy   (hanya push ke main, setelah keduanya hijau)
-#   web   ──┘
+#   check     ──┐
+#   web       ──┼──▶ deploy   (hanya push ke main, setelah semuanya hijau)
+#   test-roms ──┘
 #
-# Di PR: check + web jalan (beberapa menit). Tidak ada deploy.
+# Di PR: check + web + test-roms jalan paralel. Tidak ada deploy.
 name: CI
 
 on:
@@ -106,10 +106,43 @@ jobs:
         with:
           path: dist
 
+  # ROM uji pihak ketiga (ADR-0005): diunduh dari commit yang dikunci,
+  # dicek SHA-256-nya, lalu dibandingkan dengan hasil yang diharapkan di
+  # tools/test-roms.tsv. ROM tidak pernah di-commit (ADR-0006).
+  test-roms:
+    name: ROM uji · Blargg cpu_instrs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pasang toolchain dari rust-toolchain.toml
+        run: rustup toolchain install && rustup show active-toolchain
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-roms-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+
+      # Kunci cache = isi manifest: ROM baru diunduh hanya kalau manifest berubah.
+      - uses: actions/cache@v4
+        with:
+          path: test-roms
+          key: test-roms-${{ hashFiles('tools/test-roms.tsv') }}
+
+      - name: Unduh & verifikasi ROM uji
+        run: ./tools/fetch-test-roms.sh
+
+      - name: Jalankan ROM uji
+        run: ./tools/run-test-roms.sh
+
   deploy:
     name: Deploy · GitHub Pages
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [check, web]
+    needs: [check, web, test-roms]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

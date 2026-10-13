@@ -637,3 +637,319 @@ fn countdown_loop_runs_exactly_n_times() {
     // 8 + 3×(4+4) + 2×12 (lompat) + 1×8 (tidak lompat) = 64 siklus.
     assert_eq!(total, 64);
 }
+
+// ---------------------------------------------------------------------------
+// Memori lewat pasangan register, LDH, alamat 16-bit
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ld_through_bc_and_de() {
+    // LD (BC),A ; LD A,(DE)
+    let (mut cpu, mut bus) = setup(&[0x02, 0x1A]);
+    cpu.regs.a = 0x77;
+    cpu.regs.set_bc(0xC000);
+    cpu.regs.set_de(0xC100);
+    bus.write(0xC100, 0x33);
+    assert_eq!(step(&mut cpu, &mut bus), 8);
+    assert_eq!(bus.read(0xC000), 0x77);
+    assert_eq!(step(&mut cpu, &mut bus), 8);
+    assert_eq!(cpu.regs.a, 0x33);
+}
+
+#[test]
+fn ld_hl_plus_and_minus_move_hl_after_use() {
+    // LD (HL+),A ; LD (HL+),A ; LD A,(HL-)
+    let (mut cpu, mut bus) = setup(&[0x22, 0x22, 0x3A]);
+    cpu.regs.set_hl(0xC000);
+    cpu.regs.a = 0xAA;
+    step(&mut cpu, &mut bus);
+    step(&mut cpu, &mut bus);
+    assert_eq!((bus.read(0xC000), bus.read(0xC001)), (0xAA, 0xAA));
+    assert_eq!(cpu.regs.hl(), 0xC002);
+    bus.write(0xC002, 0x5B);
+    step(&mut cpu, &mut bus);
+    assert_eq!(cpu.regs.a, 0x5B);
+    assert_eq!(cpu.regs.hl(), 0xC001);
+}
+
+#[test]
+fn ld_hl_minus_wraps_at_zero() {
+    let (mut cpu, mut bus) = setup(&[0x32]); // LD (HL-),A
+    cpu.regs.set_hl(0x0000);
+    step(&mut cpu, &mut bus);
+    assert_eq!(cpu.regs.hl(), 0xFFFF);
+}
+
+#[test]
+fn ldh_uses_page_ff() {
+    // LDH (0x80),A ; LDH A,(0x81)
+    let (mut cpu, mut bus) = setup(&[0xE0, 0x80, 0xF0, 0x81]);
+    cpu.regs.a = 0x12;
+    bus.write(0xFF81, 0x34);
+    assert_eq!(step(&mut cpu, &mut bus), 12);
+    assert_eq!(bus.read(0xFF80), 0x12);
+    assert_eq!(step(&mut cpu, &mut bus), 12);
+    assert_eq!(cpu.regs.a, 0x34);
+}
+
+#[test]
+fn ld_c_indirect_uses_page_ff() {
+    // LD (C),A ; LD A,(C)
+    let (mut cpu, mut bus) = setup(&[0xE2, 0xF2]);
+    cpu.regs.c = 0x90;
+    cpu.regs.a = 0x99;
+    assert_eq!(step(&mut cpu, &mut bus), 8);
+    assert_eq!(bus.read(0xFF90), 0x99);
+    bus.write(0xFF90, 0x11);
+    assert_eq!(step(&mut cpu, &mut bus), 8);
+    assert_eq!(cpu.regs.a, 0x11);
+}
+
+#[test]
+fn ld_absolute_address() {
+    // LD (0xC123),A ; LD A,(0xC200)
+    let (mut cpu, mut bus) = setup(&[0xEA, 0x23, 0xC1, 0xFA, 0x00, 0xC2]);
+    cpu.regs.a = 0x4D;
+    bus.write(0xC200, 0x6E);
+    assert_eq!(step(&mut cpu, &mut bus), 16);
+    assert_eq!(bus.read(0xC123), 0x4D);
+    assert_eq!(step(&mut cpu, &mut bus), 16);
+    assert_eq!(cpu.regs.a, 0x6E);
+}
+
+#[test]
+fn ld_a16_sp_stores_little_endian() {
+    let (mut cpu, mut bus) = setup(&[0x08, 0x00, 0xC0]); // LD (0xC000),SP
+    cpu.regs.sp = 0xBEEF;
+    assert_eq!(step(&mut cpu, &mut bus), 20);
+    assert_eq!((bus.read(0xC000), bus.read(0xC001)), (0xEF, 0xBE));
+}
+
+// ---------------------------------------------------------------------------
+// Aritmetika 16-bit
+// ---------------------------------------------------------------------------
+
+#[test]
+fn inc_dec_rr_wrap_and_leave_flags_alone() {
+    // INC BC ; DEC DE ; INC SP
+    let (mut cpu, mut bus) = setup(&[0x03, 0x1B, 0x33]);
+    cpu.regs.set_bc(0xFFFF);
+    cpu.regs.set_de(0x0000);
+    cpu.regs.sp = 0x1234;
+    cpu.regs.set_f(0xA0);
+    for _ in 0..3 {
+        assert_eq!(step(&mut cpu, &mut bus), 8);
+    }
+    assert_eq!(cpu.regs.bc(), 0x0000);
+    assert_eq!(cpu.regs.de(), 0xFFFF);
+    assert_eq!(cpu.regs.sp, 0x1235);
+    // Tidak ada flag yang berubah, walaupun hasilnya nol atau meluap.
+    assert_eq!(cpu.regs.f(), 0xA0);
+}
+
+#[test]
+fn add_hl_half_carry_is_from_bit_11() {
+    // 0x0FFF + 0x0001 = 0x1000: H menyala (bit 11 → 12), C tidak.
+    let (mut cpu, mut bus) = setup(&[0x09, 0x09]); // ADD HL,BC ×2
+    cpu.regs.set_hl(0x0FFF);
+    cpu.regs.set_bc(0x0001);
+    cpu.regs.set_flag(Flag::Zero, true);
+    assert_eq!(step(&mut cpu, &mut bus), 8);
+    assert_eq!(cpu.regs.hl(), 0x1000);
+    // Z tidak disentuh ADD HL; tetap menyala dari sebelumnya.
+    assert_eq!(flags(&cpu), (true, false, true, false));
+
+    // Kasus batas: 0x0FFE + 0x0001 = 0x0FFF, H tidak menyala.
+    cpu.regs.set_hl(0x0FFE);
+    step(&mut cpu, &mut bus);
+    assert!(!cpu.regs.flag(Flag::HalfCarry));
+}
+
+#[test]
+fn add_hl_half_carry_is_not_from_bit_7() {
+    // Angka yang memisahkan bit 7 dan bit 11 (tes di atas tidak bisa):
+    // 0x00FF + 0x0001 → carry di bit 7 saja → H MATI.
+    // 0x0F00 + 0x0100 → carry di bit 11 saja → H MENYALA.
+    let (mut cpu, mut bus) = setup(&[0x09, 0x09]); // ADD HL,BC ×2
+    cpu.regs.set_hl(0x00FF);
+    cpu.regs.set_bc(0x0001);
+    step(&mut cpu, &mut bus);
+    assert_eq!(cpu.regs.hl(), 0x0100);
+    assert!(!cpu.regs.flag(Flag::HalfCarry));
+
+    cpu.regs.set_hl(0x0F00);
+    cpu.regs.set_bc(0x0100);
+    step(&mut cpu, &mut bus);
+    assert_eq!(cpu.regs.hl(), 0x1000);
+    assert!(cpu.regs.flag(Flag::HalfCarry));
+}
+
+#[test]
+fn add_hl_carry_from_bit_15() {
+    let (mut cpu, mut bus) = setup(&[0x29]); // ADD HL,HL
+    cpu.regs.set_hl(0x8000);
+    step(&mut cpu, &mut bus);
+    assert_eq!(cpu.regs.hl(), 0x0000);
+    // Hasil nol, tetapi Z tetap tidak disentuh (awalnya mati).
+    assert_eq!(flags(&cpu), (false, false, false, true));
+}
+
+#[test]
+fn add_sp_e8_positive_and_negative() {
+    // SP = 0xD001, offset -1 (0xFF) → 0xD000.
+    // Flag dari byte rendah tanpa tanda: 0x01 + 0xFF = 0x100 → H dan C menyala.
+    let (mut cpu, mut bus) = setup(&[0xE8, 0xFF]);
+    cpu.regs.sp = 0xD001;
+    cpu.regs.set_flag(Flag::Zero, true);
+    assert_eq!(step(&mut cpu, &mut bus), 16);
+    assert_eq!(cpu.regs.sp, 0xD000);
+    assert_eq!(flags(&cpu), (false, false, true, true));
+
+    // SP = 0xD000, offset -1 → 0xCFFF. 0x00 + 0xFF = 0xFF → tanpa H dan C.
+    let (mut cpu, mut bus) = setup(&[0xE8, 0xFF]);
+    cpu.regs.sp = 0xD000;
+    step(&mut cpu, &mut bus);
+    assert_eq!(cpu.regs.sp, 0xCFFF);
+    assert_eq!(flags(&cpu), (false, false, false, false));
+
+    // SP = 0x000F, offset +1 → H (0xF + 0x1); C tidak (0x0F + 0x01 < 0x100).
+    let (mut cpu, mut bus) = setup(&[0xE8, 0x01]);
+    cpu.regs.sp = 0x000F;
+    step(&mut cpu, &mut bus);
+    assert_eq!(cpu.regs.sp, 0x0010);
+    assert_eq!(flags(&cpu), (false, false, true, false));
+}
+
+#[test]
+fn ld_hl_sp_e8_and_ld_sp_hl() {
+    // LD HL,SP-2 ; LD SP,HL
+    let (mut cpu, mut bus) = setup(&[0xF8, 0xFE, 0xF9]);
+    cpu.regs.sp = 0xFFFE;
+    assert_eq!(step(&mut cpu, &mut bus), 12);
+    assert_eq!(cpu.regs.hl(), 0xFFFC);
+    assert_eq!(cpu.regs.sp, 0xFFFE); // SP sendiri tidak berubah
+    assert_eq!(step(&mut cpu, &mut bus), 8);
+    assert_eq!(cpu.regs.sp, 0xFFFC);
+}
+
+// ---------------------------------------------------------------------------
+// Rotasi A, DAA, CPL, SCF, CCF
+// ---------------------------------------------------------------------------
+
+/// Menjalankan satu operasi A dengan nilai A dan flag C awal tertentu.
+fn a_op(opcode: u8, a: u8, carry_in: bool) -> Cpu {
+    let (mut cpu, mut bus) = setup(&[opcode]);
+    cpu.regs.a = a;
+    cpu.regs.set_flag(Flag::Carry, carry_in);
+    assert_eq!(step(&mut cpu, &mut bus), 4);
+    cpu
+}
+
+#[test]
+fn rlca_and_rrca_rotate_8_bits() {
+    let cpu = a_op(0x07, 0b1000_0101, false); // RLCA
+    assert_eq!(cpu.regs.a, 0b0000_1011);
+    assert_eq!(flags(&cpu), (false, false, false, true));
+
+    let cpu = a_op(0x0F, 0b0000_0001, false); // RRCA
+    assert_eq!(cpu.regs.a, 0b1000_0000);
+    assert_eq!(flags(&cpu), (false, false, false, true));
+}
+
+#[test]
+fn rla_and_rra_rotate_through_carry() {
+    // RLA: C lama masuk ke bit 0, bit 7 keluar ke C.
+    let cpu = a_op(0x17, 0b1001_0101, true);
+    assert_eq!(cpu.regs.a, 0b0010_1011);
+    assert!(cpu.regs.flag(Flag::Carry));
+
+    // RRA: C lama masuk ke bit 7, bit 0 keluar ke C.
+    let cpu = a_op(0x1F, 0b1000_0001, false);
+    assert_eq!(cpu.regs.a, 0b0100_0000);
+    assert!(cpu.regs.flag(Flag::Carry));
+}
+
+#[test]
+fn rotate_a_never_sets_zero() {
+    // RLA dengan A = 0x80, C = 0 → hasil 0x00, tetapi Z tetap mati.
+    let cpu = a_op(0x17, 0x80, false);
+    assert_eq!(cpu.regs.a, 0x00);
+    assert_eq!(flags(&cpu), (false, false, false, true));
+}
+
+#[test]
+fn cpl_scf_ccf() {
+    let cpu = a_op(0x2F, 0b1010_0101, false); // CPL
+    assert_eq!(cpu.regs.a, 0b0101_1010);
+    assert_eq!(flags(&cpu), (false, true, true, false));
+
+    let cpu = a_op(0x37, 0x00, false); // SCF
+    assert_eq!(flags(&cpu), (false, false, false, true));
+
+    let cpu = a_op(0x3F, 0x00, true); // CCF: 1 → 0
+    assert!(!cpu.regs.flag(Flag::Carry));
+    let cpu = a_op(0x3F, 0x00, false); // CCF: 0 → 1
+    assert!(cpu.regs.flag(Flag::Carry));
+}
+
+/// Menjalankan `LD A,a ; <op> b ; DAA` dan mengembalikan CPU-nya.
+fn daa_after(op: u8, a: u8, b: u8) -> Cpu {
+    let (mut cpu, mut bus) = setup(&[0x3E, a, op, b, 0x27]);
+    for _ in 0..3 {
+        step(&mut cpu, &mut bus);
+    }
+    cpu
+}
+
+#[test]
+fn daa_after_addition() {
+    // Desimal 15 + 27 = 42.
+    let cpu = daa_after(0xC6, 0x15, 0x27);
+    assert_eq!(cpu.regs.a, 0x42);
+    assert!(!cpu.regs.flag(Flag::Carry));
+
+    // 99 + 1 = 100 → "00" dengan carry (ratusan).
+    let cpu = daa_after(0xC6, 0x99, 0x01);
+    assert_eq!(cpu.regs.a, 0x00);
+    assert_eq!(flags(&cpu), (true, false, false, true));
+
+    // 9 + 9 = 18: H menyala setelah ADD (0x9 + 0x9 = 0x12).
+    let cpu = daa_after(0xC6, 0x09, 0x09);
+    assert_eq!(cpu.regs.a, 0x18);
+}
+
+#[test]
+fn daa_after_subtraction() {
+    // Desimal 42 − 15 = 27.
+    let cpu = daa_after(0xD6, 0x42, 0x15);
+    assert_eq!(cpu.regs.a, 0x27);
+    assert!(cpu.regs.flag(Flag::Subtract)); // N dibiarkan apa adanya
+
+    // 10 − 1 = 9.
+    let cpu = daa_after(0xD6, 0x10, 0x01);
+    assert_eq!(cpu.regs.a, 0x09);
+
+    // 0 − 1 = "99" dengan pinjam.
+    let cpu = daa_after(0xD6, 0x00, 0x01);
+    assert_eq!(cpu.regs.a, 0x99);
+    assert!(cpu.regs.flag(Flag::Carry));
+}
+
+// ---------------------------------------------------------------------------
+// RST
+// ---------------------------------------------------------------------------
+
+#[test]
+fn rst_calls_fixed_addresses() {
+    for (n, opcode) in [0xC7u8, 0xCF, 0xD7, 0xDF, 0xE7, 0xEF, 0xF7, 0xFF]
+        .into_iter()
+        .enumerate()
+    {
+        let (mut cpu, mut bus) = setup(&[opcode]);
+        cpu.regs.sp = 0xFFFE;
+        assert_eq!(step(&mut cpu, &mut bus), 16);
+        assert_eq!(usize::from(cpu.regs.pc), n * 8, "RST {opcode:#04X}");
+        // Alamat kembali = 0x0101 (setelah RST yang 1 byte).
+        assert_eq!((bus.read(0xFFFD), bus.read(0xFFFC)), (0x01, 0x01));
+    }
+}

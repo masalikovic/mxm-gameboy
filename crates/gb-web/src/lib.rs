@@ -8,6 +8,7 @@
 //!
 //! Fungsi dan tipe bertanda `#[wasm_bindgen]` bisa dipakai dari `web/main.js`.
 
+use gb_core::joypad::Buttons;
 use gb_core::machine::GameBoy;
 use wasm_bindgen::prelude::wasm_bindgen;
 
@@ -65,6 +66,17 @@ impl Emulator {
         self.gb.run_frame().map_err(|error| format!("{error:?}"))
     }
 
+    /// Tombol yang sedang ditekan, satu bit per tombol (sama dengan
+    /// `gb_core::joypad::Button`): kanan 0x01, kiri 0x02, atas 0x04,
+    /// bawah 0x08, A 0x10, B 0x20, Select 0x40, Start 0x80.
+    ///
+    /// JavaScript yang mengurus sentuhan dan keyboard; di sini hanya
+    /// diteruskan ke core.
+    #[wasm_bindgen(js_name = setButtons)]
+    pub fn set_buttons(&mut self, mask: u8) {
+        self.gb.set_buttons(Buttons(mask));
+    }
+
     /// Salinan layar: 160 × 144 byte, tingkat kegelapan 0 (terang) – 3 (gelap).
     #[must_use]
     pub fn framebuffer(&self) -> Vec<u8> {
@@ -98,6 +110,25 @@ mod tests {
             emulator.run_frame().expect("tidak ada opcode yang hilang");
         }
         assert_eq!(emulator.framebuffer().len(), 160 * 144);
+    }
+
+    #[test]
+    fn buttons_reach_the_joypad_register() {
+        // ROM: pilih grup arah (P1 = 0x20), baca P1 ke A, lalu kirim lewat
+        // serial dan berhenti di loop.
+        //   LD A,0x20 / LDH (0x00),A / LDH A,(0x00) / LDH (0x01),A /
+        //   LD A,0x81 / LDH (0x02),A / JR -2
+        let program = [
+            0x3E, 0x20, 0xE0, 0x00, 0xF0, 0x00, 0xE0, 0x01, 0x3E, 0x81, 0xE0, 0x02, 0x18, 0xFE,
+        ];
+        let mut rom = vec![0u8; 0x8000];
+        rom[0x100..0x100 + program.len()].copy_from_slice(&program);
+        let mut emulator = Emulator::new(&rom).expect("ROM cukup besar");
+        emulator.set_buttons(0x01 | 0x80); // kanan + Start
+        emulator.run_frame().expect("tidak ada opcode yang hilang");
+        // Grup arah: kanan ditekan → bit 0 bernilai 0. Start (grup aksi)
+        // tidak terlihat karena grupnya tidak dipilih.
+        assert_eq!(emulator.gb.bus.take_serial_byte(), Some(0xEE));
     }
 
     #[test]

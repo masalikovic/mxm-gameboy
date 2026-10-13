@@ -20,18 +20,46 @@
         <p id="screen-text" class="screen-text">Memuat…</p>
       </div>
     </section>
+    <!-- Tombol sentuh. data-button = bit tombol di gb-core (joypad.rs):
+         kanan 1, kiri 2, atas 4, bawah 8, A 16, B 32, Select 64, Start 128. -->
+    <section class="pad" aria-label="Tombol Game Boy">
+      <div id="dpad" class="dpad" aria-label="D-pad">
+        <span class="arm up" data-button="4"></span>
+        <span class="arm left" data-button="2"></span>
+        <span class="hub"></span>
+        <span class="arm right" data-button="1"></span>
+        <span class="arm down" data-button="8"></span>
+      </div>
+      <div class="ab">
+        <button type="button" class="round" data-button="32" aria-label="B">B</button>
+        <button type="button" class="round" data-button="16" aria-label="A">A</button>
+      </div>
+      <div class="menu">
+        <button type="button" class="pill" data-button="64">SELECT</button>
+        <button type="button" class="pill" data-button="128">START</button>
+      </div>
+    </section>
+    <p class="keys">Keyboard: panah/WASD · X = A · Z = B · Enter = Start · Shift = Select</p>
     <p id="status" class="status" role="status">Menyiapkan WebAssembly</p>
     <p id="build" class="build"></p>
     <p id="perf" class="build"></p>
+    <label class="demo-picker">Demo
+      <select id="demo">
+        <option value="jeruk.gb">Kejar Jeruk (game)</option>
+        <option value="sprite.gb">Sprite + window</option>
+        <option value="layar.gb">Layar teks</option>
+      </select>
+    </label>
     <label class="rom-picker">
       <input id="rom-input" type="file" accept=".gb,.gbc,application/octet-stream">
       Muat ROM .gb dari perangkat ini
     </label>
     <noscript><p class="status">Halaman ini butuh JavaScript untuk menjalankan emulator.</p></noscript>
     <p class="note">
-      Tahap M4: gambar di atas dibuat oleh PPU <code>gb-core</code> (Rust →
-      WebAssembly) dari program C <code>homebrew/layar</code>. ROM yang Anda muat
-      hanya dibaca di perangkat ini dan tidak diunggah ke mana pun.
+      Tahap M5: game <code>homebrew/jeruk</code> (C, GBDK) berjalan di
+      <code>gb-core</code> (Rust → WebAssembly); tombol di atas diteruskan ke
+      register joypad P1. ROM yang Anda muat hanya dibaca di perangkat ini dan
+      tidak diunggah ke mana pun.
       <a href="https://github.com/Masalikovic/mxm-gameboy">Kode sumber</a>
     </p>
   </main>

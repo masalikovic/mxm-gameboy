@@ -32,21 +32,30 @@ for dir in homebrew/*/; do
     echo "== ${name}: GAGAL" >&2
     problems=$((problems + 1))
   fi
-  # Golden test layar (opsional): homebrew/<nama>/screen.hash = "<frames> <hash>".
+  # Golden test layar (opsional): homebrew/<nama>/screen.hash, satu tes per
+  # baris: "<frames> <hash> [tombol]". Tombol (mis. "right,a") ditahan selama
+  # semua frame, supaya input juga ikut diuji tanpa manusia.
   if [[ -f "${dir}screen.hash" ]]; then
-    read -r frames expected < <(grep -v '^#' "${dir}screen.hash")
-    actual="$("${headless}" "${rom}" --frames "${frames}" --screenshot "${dir}build/${name}.pgm")"
-    if [[ "${actual}" == "${expected}" ]]; then
-      echo "== ${name}: layar cocok (${frames} frame, ${actual})"
-    else
-      echo "== ${name}: LAYAR BERBEDA: ${actual}, seharusnya ${expected} (lihat ${dir}build/${name}.pgm)" >&2
-      problems=$((problems + 1))
-    fi
+    case_no=0
+    while read -r frames expected buttons; do
+      case_no=$((case_no + 1))
+      hold=()
+      [[ -n "${buttons}" ]] && hold=(--hold "${buttons}")
+      shot="${dir}build/${name}-${case_no}.pgm"
+      actual="$("${headless}" "${rom}" --frames "${frames}" "${hold[@]}" --screenshot "${shot}")"
+      label="${frames} frame${buttons:+, tahan ${buttons}}"
+      if [[ "${actual}" == "${expected}" ]]; then
+        echo "== ${name}: layar cocok (${label}, ${actual})"
+      else
+        echo "== ${name}: LAYAR BERBEDA (${label}): ${actual}, seharusnya ${expected} (lihat ${shot})" >&2
+        problems=$((problems + 1))
+      fi
+    done < <(grep -v '^#' "${dir}screen.hash")
   fi
 done
 
 if (( problems > 0 )); then
-  echo "${problems} program homebrew gagal." >&2
+  echo "${problems} pemeriksaan homebrew gagal." >&2
   exit 1
 fi
 echo "Semua program homebrew Passed."

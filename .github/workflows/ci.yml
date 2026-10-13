@@ -1,10 +1,11 @@
 # Satu workflow untuk cek kode dan deploy halaman (ADR-0007).
 #
 #   check     ──┐
-#   web       ──┼──▶ deploy   (hanya push ke main, setelah semuanya hijau)
-#   test-roms ──┘
+#   web       ──┤
+#   test-roms ──┼──▶ deploy   (hanya push ke main, setelah semuanya hijau)
+#   homebrew  ──┘
 #
-# Di PR: check + web + test-roms jalan paralel. Tidak ada deploy.
+# Di PR: check + web + test-roms + homebrew jalan paralel. Tidak ada deploy.
 name: CI
 
 on:
@@ -139,10 +140,43 @@ jobs:
       - name: Jalankan ROM uji
         run: ./tools/run-test-roms.sh
 
+  # Program C kita sendiri (ADR-0004): GBDK-2020 diunduh (versi dikunci,
+  # dicek SHA-256), setiap homebrew/<nama>/main.c di-build menjadi ROM,
+  # lalu dijalankan gb-headless dan wajib mencetak "Passed".
+  homebrew:
+    name: Homebrew C · GBDK → ROM → emulator
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pasang toolchain dari rust-toolchain.toml
+        run: rustup toolchain install && rustup show active-toolchain
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-homebrew-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+
+      # Kunci cache = isi skrip unduhan (versi + SHA-256 ada di dalamnya).
+      - uses: actions/cache@v4
+        with:
+          path: .gbdk
+          key: gbdk-${{ runner.os }}-${{ hashFiles('tools/fetch-gbdk.sh') }}
+
+      - name: Unduh & verifikasi GBDK-2020
+        run: ./tools/fetch-gbdk.sh
+
+      - name: Build & jalankan program homebrew
+        run: ./tools/build-homebrew.sh
+
   deploy:
     name: Deploy · GitHub Pages
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [check, web, test-roms]
+    needs: [check, web, test-roms, homebrew]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

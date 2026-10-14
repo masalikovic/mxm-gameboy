@@ -1,13 +1,13 @@
 # Golden test layar (ADR-0005): hash FNV-1a 64-bit framebuffer setelah N frame.
 # Format: <frames> <hash> [tombol yang ditahan]. Ubah hanya kalau perubahan
 # gambar memang disengaja. Semua dicek visual sebelum dikunci:
-#   tanpa tombol: posisi awal, skor 000
-#   right:        robot mengambil jeruk, skor 001, jeruk pindah
-#   right,a:      berlari sampai tepi kanan, skor 001
+#   tanpa tombol: posisi awal, "JERUK 000 REKOR 000" (RAM cartridge baru)
+#   right:        robot mengambil jeruk, skor dan rekor 001, jeruk pindah
+#   right,a:      berlari sampai tepi kanan, skor dan rekor 001
 #   start:        JEDA, robot diam (Start dibaca sekali, bukan tiap frame)
 #   left:         robot menghadap kiri, tertahan di tepi kiri
-90 98066d7927fd6876
-90 362cb999184f692f right
-90 10dcf2650b729579 right,a
-90 17a60c061cd8dee0 start
-90 0c7a3d17d06563d8 left
+90 272c2f63efd29c0e
+90 01c7d0c664da074a right
+90 fce6928674d90bae right,a
+90 03498b9a1c262100 start
+90 8782c4643d99e990 left

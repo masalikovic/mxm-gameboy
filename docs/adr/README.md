@@ -21,6 +21,7 @@ Lihat [ADR-0001](0001-catat-keputusan-dengan-adr.md) untuk alasannya.
 | [0011](0011-waktu-dan-interrupt.md) | Waktu dan interrupt: komponen dimajukan setelah setiap instruksi | Diterima |
 | [0012](0012-model-ppu.md) | Model PPU: digambar per baris, framebuffer tingkat kegelapan | Diterima |
 | [0013](0013-model-cartridge.md) | Model cartridge: satu enum MBC di dalam gb-core | Diterima |
+| [0014](0014-simpan-permainan-di-browser.md) | Simpan permainan di browser: localStorage, kunci dari isi ROM | Diterima |
 
 ## Template
 

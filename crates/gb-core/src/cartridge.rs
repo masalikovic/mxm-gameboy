@@ -147,6 +147,8 @@ pub struct Cartridge {
     mbc: Mbc,
     /// Jumlah bank ROM, selalu pangkat dua (untuk mask nomor bank).
     rom_banks: usize,
+    /// RAM berubah sejak terakhir diambil adapter: tanda untuk menyimpan.
+    ram_dirty: bool,
 }
 
 impl Cartridge {
@@ -199,6 +201,7 @@ impl Cartridge {
             header,
             mbc,
             rom_banks,
+            ram_dirty: false,
         })
     }
 
@@ -218,6 +221,15 @@ impl Cartridge {
     #[must_use]
     pub fn ram(&self) -> &[u8] {
         &self.ram
+    }
+
+    /// Apakah RAM berubah sejak panggilan terakhir. Tanda dihapus setelah
+    /// dibaca, jadi adapter cukup menyimpan saat ini mengembalikan `true`
+    /// (bukan menulis ke penyimpanan setiap frame).
+    pub const fn take_ram_dirty(&mut self) -> bool {
+        let dirty = self.ram_dirty;
+        self.ram_dirty = false;
+        dirty
     }
 
     /// Memasang kembali RAM yang pernah disimpan. Kalau ukurannya berbeda
@@ -397,8 +409,11 @@ impl Cartridge {
             }
             return;
         }
-        if let Some(index) = self.ram_index(address) {
+        if let Some(index) = self.ram_index(address)
+            && self.ram[index] != value
+        {
             self.ram[index] = value;
+            self.ram_dirty = true;
         }
     }
 }

@@ -193,3 +193,20 @@ fn ram_survives_a_save_and_load() {
     assert_eq!(fresh.read_ram(0xA010), 0x99);
     assert!(matches!(fresh.mbc(), Mbc::Mbc1 { .. }));
 }
+
+#[test]
+fn ram_writes_raise_the_dirty_flag_once() {
+    let mut cart = cart(0x03, 4, 2);
+    assert!(!cart.take_ram_dirty(), "baru dipasang: belum berubah");
+    cart.write_ram(0xA000, 0x01);
+    assert!(!cart.take_ram_dirty(), "RAM mati: tidak ada yang berubah");
+    cart.write_rom(0x0000, 0x0A);
+    cart.write_ram(0xA000, 0x01);
+    assert!(cart.take_ram_dirty());
+    assert!(!cart.take_ram_dirty(), "tanda dihapus setelah dibaca");
+    cart.write_ram(0xA000, 0x01);
+    assert!(
+        !cart.take_ram_dirty(),
+        "nilai sama: tidak perlu disimpan ulang"
+    );
+}

@@ -68,6 +68,37 @@ impl Emulator {
         self.gb.set_buttons(Buttons(mask));
     }
 
+    /// Judul game dari header cartridge (untuk ditampilkan dan menamai simpanan).
+    #[must_use]
+    pub fn title(&self) -> String {
+        self.gb.bus.cartridge().header().title.clone()
+    }
+
+    /// Cartridge berbaterai: RAM-nya layak disimpan (simpan permainan).
+    #[wasm_bindgen(js_name = hasBattery)]
+    #[must_use]
+    pub fn has_battery(&self) -> bool {
+        self.gb.bus.cartridge().header().battery
+    }
+
+    /// Salinan RAM cartridge, untuk disimpan JavaScript.
+    #[must_use]
+    pub fn ram(&self) -> Vec<u8> {
+        self.gb.bus.cartridge().ram().to_vec()
+    }
+
+    /// Memasang RAM yang pernah disimpan (dipanggil sebelum frame pertama).
+    #[wasm_bindgen(js_name = loadRam)]
+    pub fn load_ram(&mut self, saved: &[u8]) {
+        self.gb.bus.cartridge_mut().load_ram(saved);
+    }
+
+    /// `true` sekali setiap kali RAM berubah: saatnya menyimpan.
+    #[wasm_bindgen(js_name = takeRamDirty)]
+    pub fn take_ram_dirty(&mut self) -> bool {
+        self.gb.bus.cartridge_mut().take_ram_dirty()
+    }
+
     /// Salinan layar: 160 × 144 byte, tingkat kegelapan 0 (terang) – 3 (gelap).
     #[must_use]
     pub fn framebuffer(&self) -> Vec<u8> {
@@ -120,6 +151,33 @@ mod tests {
         // Grup arah: kanan ditekan → bit 0 bernilai 0. Start (grup aksi)
         // tidak terlihat karena grupnya tidak dipilih.
         assert_eq!(emulator.gb.bus.take_serial_byte(), Some(0xEE));
+    }
+
+    #[test]
+    fn battery_ram_can_be_saved_and_restored() {
+        // ROM MBC1 + RAM + baterai. Program: nyalakan RAM, tulis 0x42 ke A000,
+        // lalu berputar.
+        //   LD A,0x0A / LD (0x0000),A / LD A,0x42 / LD (0xA000),A / JR -2
+        let program = [
+            0x3E, 0x0A, 0xEA, 0x00, 0x00, 0x3E, 0x42, 0xEA, 0x00, 0xA0, 0x18, 0xFE,
+        ];
+        let mut rom = vec![0u8; 0x8000];
+        rom[0x100..0x100 + program.len()].copy_from_slice(&program);
+        rom[0x134..0x139].copy_from_slice(b"SIMPN");
+        rom[0x147] = 0x03;
+        rom[0x149] = 0x02;
+        let mut emulator = Emulator::new(&rom).expect("ROM cukup besar");
+        assert!(emulator.has_battery());
+        assert_eq!(emulator.title(), "SIMPN");
+        emulator.run_frame().expect("tidak ada opcode yang hilang");
+        assert!(emulator.take_ram_dirty());
+        let saved = emulator.ram();
+        assert_eq!(saved[0], 0x42);
+
+        let mut fresh = Emulator::new(&rom).expect("ROM cukup besar");
+        fresh.load_ram(&saved);
+        assert_eq!(fresh.ram()[0], 0x42);
+        assert!(!fresh.take_ram_dirty(), "memuat simpanan bukan perubahan");
     }
 
     #[test]

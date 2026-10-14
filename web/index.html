@@ -43,6 +43,10 @@
     <p id="status" class="status" role="status">Menyiapkan WebAssembly</p>
     <p id="build" class="build"></p>
     <p id="perf" class="build"></p>
+    <p id="save" class="save" hidden>
+      <span id="save-text"></span>
+      <button type="button" id="save-delete" class="link">Hapus simpanan</button>
+    </p>
     <label class="demo-picker">Demo
       <select id="demo">
         <option value="jeruk.gb">Kejar Jeruk (game)</option>
@@ -56,10 +60,10 @@
     </label>
     <noscript><p class="status">Halaman ini butuh JavaScript untuk menjalankan emulator.</p></noscript>
     <p class="note">
-      Tahap M5: game <code>homebrew/jeruk</code> (C, GBDK) berjalan di
-      <code>gb-core</code> (Rust → WebAssembly); tombol di atas diteruskan ke
-      register joypad P1. ROM yang Anda muat hanya dibaca di perangkat ini dan
-      tidak diunggah ke mana pun.
+      Tahap M6: game <code>homebrew/jeruk</code> (C, GBDK) berjalan di
+      <code>gb-core</code> (Rust → WebAssembly) dengan cartridge MBC1 berbaterai:
+      rekor skor tersimpan. ROM yang Anda muat dan simpanan game hanya ada di
+      perangkat ini dan tidak diunggah ke mana pun.
       <a href="https://github.com/Masalikovic/mxm-gameboy">Kode sumber</a>
     </p>
   </main>

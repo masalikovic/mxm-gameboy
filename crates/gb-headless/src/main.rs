@@ -16,12 +16,15 @@
 //!
 //! - Blargg mencetak teks yang diakhiri "Passed" atau "Failed";
 //! - Mooneye mengirim deret Fibonacci 3, 5, 8, 13, 21, 34 kalau lulus, atau
-//!   enam byte 0x42 kalau gagal.
+//!   enam byte 0x42 kalau gagal;
+//! - Blargg `dmg_sound` menulis ke RAM cartridge: tanda `DE B0 61` di
+//!   A001–A003, status di A000 (0x80 = masih berjalan, 0x00 = lulus, lainnya
+//!   = gagal), dan teks hasil mulai A004.
 //!
 //! Kode keluar:
 //!
-//! - `0`: lulus ("Passed" atau deret Fibonacci);
-//! - `1`: gagal ("Failed" atau 0x42 ×6);
+//! - `0`: lulus ("Passed", deret Fibonacci, atau status RAM 0x00);
+//! - `1`: gagal ("Failed", 0x42 ×6, atau status RAM selain 0x00/0x80);
 //! - `2`: error lain (file tidak ada, opcode belum ditulis, batas siklus habis).
 //!
 //! Berbeda dengan core, adapter boleh memakai `std`: membaca file, menulis ke
@@ -36,6 +39,26 @@ use gb_core::machine::GameBoy;
 /// Tanda lulus/gagal ROM uji Mooneye lewat serial.
 const MOONEYE_PASS: [u8; 6] = [3, 5, 8, 13, 21, 34];
 const MOONEYE_FAIL: [u8; 6] = [0x42; 6];
+
+/// Tanda protokol memori Blargg di RAM cartridge (A001–A003).
+const BLARGG_SIGNATURE: [u8; 3] = [0xDE, 0xB0, 0x61];
+/// RAM diperiksa tiap sekian siklus (±1 frame), bukan tiap instruksi.
+const MEMORY_CHECK_CYCLES: u64 = 65_536;
+
+/// Hasil protokol memori Blargg, kalau tesnya sudah selesai:
+/// `Some((lulus, teks))`. `None` kalau tanda belum ada atau masih berjalan.
+fn blargg_memory_result(ram: &[u8]) -> Option<(bool, String)> {
+    let (status, rest) = ram.split_first()?;
+    if rest.get(..3)? != BLARGG_SIGNATURE || *status == 0x80 {
+        return None;
+    }
+    let text: String = rest[3..]
+        .iter()
+        .take_while(|&&byte| byte != 0)
+        .map(|&byte| char::from(byte))
+        .collect();
+    Some((*status == 0, text))
+}
 
 /// Batas bawaan: ±60 detik waktu Game Boy (4.194.304 siklus per detik).
 const DEFAULT_MAX_CYCLES: u64 = 60 * 4_194_304;
@@ -182,12 +205,24 @@ fn run(mut gb: GameBoy, max_cycles: u64) -> ExitCode {
     let mut output = Vec::new();
     let mut cycles: u64 = 0;
     let mut stdout = std::io::stdout();
+    let mut next_memory_check = MEMORY_CHECK_CYCLES;
     while cycles < max_cycles {
         match gb.step() {
             Ok(n) => cycles += u64::from(n),
             Err(error) => {
                 eprintln!("\nBerhenti setelah {cycles} siklus: {error:?}");
                 return ExitCode::from(2);
+            }
+        }
+        if cycles >= next_memory_check {
+            next_memory_check += MEMORY_CHECK_CYCLES;
+            if let Some((passed, text)) = blargg_memory_result(gb.bus.cartridge().ram()) {
+                println!("{}", text.trim_end());
+                return if passed {
+                    ExitCode::SUCCESS
+                } else {
+                    ExitCode::from(1)
+                };
             }
         }
         if let Some(byte) = gb.bus.take_serial_byte() {
@@ -210,7 +245,21 @@ fn run(mut gb: GameBoy, max_cycles: u64) -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_buttons;
+    use super::{blargg_memory_result, parse_buttons};
+
+    #[test]
+    fn blargg_memory_protocol() {
+        let mut ram = vec![0u8; 16];
+        assert_eq!(blargg_memory_result(&ram), None, "belum ada tanda");
+        ram[..4].copy_from_slice(&[0x80, 0xDE, 0xB0, 0x61]);
+        assert_eq!(blargg_memory_result(&ram), None, "masih berjalan");
+        ram[0] = 0x00;
+        ram[4..10].copy_from_slice(b"Passed");
+        assert_eq!(blargg_memory_result(&ram), Some((true, "Passed".into())));
+        ram[0] = 0x03;
+        assert_eq!(blargg_memory_result(&ram).map(|r| r.0), Some(false));
+        assert_eq!(blargg_memory_result(&[]), None, "tanpa RAM");
+    }
 
     #[test]
     fn button_names_become_bits() {

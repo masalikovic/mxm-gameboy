@@ -22,6 +22,7 @@ Lihat [ADR-0001](0001-catat-keputusan-dengan-adr.md) untuk alasannya.
 | [0012](0012-model-ppu.md) | Model PPU: digambar per baris, framebuffer tingkat kegelapan | Diterima |
 | [0013](0013-model-cartridge.md) | Model cartridge: satu enum MBC di dalam gb-core | Diterima |
 | [0014](0014-simpan-permainan-di-browser.md) | Simpan permainan di browser: localStorage, kunci dari isi ROM | Diterima |
+| [0015](0015-model-apu.md) | Model APU: sampel dibuat di core, diputar oleh adapter | Diterima |
 
 ## Template
 

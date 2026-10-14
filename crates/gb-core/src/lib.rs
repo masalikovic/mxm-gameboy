@@ -12,6 +12,7 @@
 //!
 //! Modul:
 //!
+//! - [`apu`]: chip suara: 4 kanal, frame sequencer, sampel stereo (ADR-0015).
 //! - [`bus`]: cara CPU membaca dan menulis memori (ADR-0010).
 //! - [`cartridge`]: header, ROM, RAM cartridge, dan MBC1/2/3/5 (ADR-0013).
 //! - [`cpu`]: CPU SM83, dibangun instruksi demi instruksi di M1–M2.
@@ -25,6 +26,7 @@
 
 extern crate alloc;
 
+pub mod apu;
 pub mod bus;
 pub mod cartridge;
 pub mod cpu;

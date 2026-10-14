@@ -12,6 +12,7 @@
 //! area ROM tidak mengubah ROM — itu perintah ke MBC: nyalakan RAM, pilih
 //! bank ROM, pilih bank RAM. Tipe MBC dibaca dari header di 0x147.
 
+use crate::state::{Reader, StateError, Writer};
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec;
@@ -139,7 +140,7 @@ pub enum Mbc {
 }
 
 /// Cartridge yang terpasang: ROM, RAM, dan MBC-nya.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Cartridge {
     rom: Box<[u8]>,
     ram: Vec<u8>,
@@ -149,6 +150,8 @@ pub struct Cartridge {
     rom_banks: usize,
     /// RAM berubah sejak terakhir diambil adapter: tanda untuk menyimpan.
     ram_dirty: bool,
+    /// FNV-1a isi ROM, untuk save state.
+    fingerprint: u32,
 }
 
 impl Cartridge {
@@ -196,12 +199,13 @@ impl Cartridge {
         // Ukuran file, bukan header, yang menentukan jumlah bank (ADR-0013).
         let rom_banks = rom.len().div_ceil(ROM_BANK).next_power_of_two().max(2);
         Ok(Self {
-            rom,
             ram: vec![0; ram_size],
             header,
             mbc,
             rom_banks,
             ram_dirty: false,
+            fingerprint: crate::state::fingerprint(&rom),
+            rom,
         })
     }
 
@@ -415,6 +419,135 @@ impl Cartridge {
             self.ram[index] = value;
             self.ram_dirty = true;
         }
+    }
+}
+
+impl Cartridge {
+    /// Sidik ROM untuk save state: state dari ROM lain ditolak.
+    #[must_use]
+    pub const fn fingerprint(&self) -> u32 {
+        self.fingerprint
+    }
+
+    /// Tes: kosongkan bagian yang sengaja tidak ikut save state.
+    #[cfg(test)]
+    pub(crate) const fn clear_transient(&mut self) {
+        self.ram_dirty = false;
+    }
+
+    /// Menulis RAM cartridge dan register MBC ke save state (ADR-0016).
+    /// ROM tidak ikut.
+    pub(crate) fn save(&self, w: &mut Writer) {
+        w.bytes(&self.ram);
+        match &self.mbc {
+            Mbc::None => w.u8(0),
+            Mbc::Mbc1 {
+                ram_enabled,
+                bank1,
+                bank2,
+                mode,
+            } => {
+                w.u8(1);
+                w.bool(*ram_enabled);
+                w.u8(*bank1);
+                w.u8(*bank2);
+                w.bool(*mode);
+            }
+            Mbc::Mbc2 {
+                ram_enabled,
+                rom_bank,
+            } => {
+                w.u8(2);
+                w.bool(*ram_enabled);
+                w.u8(*rom_bank);
+            }
+            Mbc::Mbc3 {
+                ram_enabled,
+                rom_bank,
+                ram_select,
+                rtc,
+            } => {
+                w.u8(3);
+                w.bool(*ram_enabled);
+                w.u8(*rom_bank);
+                w.u8(*ram_select);
+                w.bytes(rtc);
+            }
+            Mbc::Mbc5 {
+                ram_enabled,
+                rom_bank,
+                ram_bank,
+            } => {
+                w.u8(5);
+                w.bool(*ram_enabled);
+                w.u16(*rom_bank);
+                w.u8(*ram_bank);
+            }
+        }
+    }
+
+    /// Membaca RAM cartridge dan register MBC dari save state. Tipe MBC di
+    /// state harus sama dengan cartridge ini (sidik ROM sudah dicek).
+    pub(crate) fn load(&mut self, r: &mut Reader<'_>) -> Result<(), StateError> {
+        r.bytes_into(&mut self.ram)?;
+        let kind = r.u8()?;
+        match (&mut self.mbc, kind) {
+            (Mbc::None, 0) => {}
+            (
+                Mbc::Mbc1 {
+                    ram_enabled,
+                    bank1,
+                    bank2,
+                    mode,
+                },
+                1,
+            ) => {
+                *ram_enabled = r.bool()?;
+                *bank1 = r.u8()?;
+                *bank2 = r.u8()?;
+                *mode = r.bool()?;
+            }
+            (
+                Mbc::Mbc2 {
+                    ram_enabled,
+                    rom_bank,
+                },
+                2,
+            ) => {
+                *ram_enabled = r.bool()?;
+                *rom_bank = r.u8()?;
+            }
+            (
+                Mbc::Mbc3 {
+                    ram_enabled,
+                    rom_bank,
+                    ram_select,
+                    rtc,
+                },
+                3,
+            ) => {
+                *ram_enabled = r.bool()?;
+                *rom_bank = r.u8()?;
+                *ram_select = r.u8()?;
+                r.bytes_into(rtc)?;
+            }
+            (
+                Mbc::Mbc5 {
+                    ram_enabled,
+                    rom_bank,
+                    ram_bank,
+                },
+                5,
+            ) => {
+                *ram_enabled = r.bool()?;
+                *rom_bank = r.u16()?;
+                *ram_bank = r.u8()?;
+            }
+            _ => return Err(StateError::Corrupt),
+        }
+        // RAM berubah: simpan permainan (M6) ikut memperbarui salinannya.
+        self.ram_dirty = true;
+        Ok(())
     }
 }
 

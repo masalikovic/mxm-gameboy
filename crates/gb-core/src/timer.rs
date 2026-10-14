@@ -23,6 +23,8 @@
 //! permintaan interrupt terjadi 4 siklus setelah luapan. Di sini keduanya
 //! seketika. ROM uji yang mengukur jeda 4 siklus itu (mooneye) belum target.
 
+use crate::state::{Reader, StateError, Writer};
+
 /// Timer DMG.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Timer {
@@ -101,6 +103,25 @@ impl Timer {
         let (value, overflow) = self.tima.overflowing_add(1);
         self.tima = if overflow { self.tma } else { value };
         overflow
+    }
+}
+
+impl Timer {
+    /// Menulis keadaan timer ke save state (ADR-0016).
+    pub(crate) fn save(&self, w: &mut Writer) {
+        w.u16(self.counter);
+        w.u8(self.tima);
+        w.u8(self.tma);
+        w.u8(self.tac);
+    }
+
+    /// Membaca keadaan timer dari save state.
+    pub(crate) fn load(&mut self, r: &mut Reader<'_>) -> Result<(), StateError> {
+        self.counter = r.u16()?;
+        self.tima = r.u8()?;
+        self.tma = r.u8()?;
+        self.tac = r.u8()?;
+        Ok(())
     }
 }
 

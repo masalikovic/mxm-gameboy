@@ -36,6 +36,16 @@ for dir in homebrew/*/; do
     echo "== ${name}: GAGAL" >&2
     problems=$((problems + 1))
   fi
+  # Save state (ADR-0016): tanpa tombol dan sambil menahan kanan.
+  for hold in "" right; do
+    if out="$("${headless}" "${rom}" --frames 45 ${hold:+--hold "${hold}"} --state-check 45)"; then
+      echo "== ${name}: save state cocok${hold:+ (tahan ${hold})}"
+    else
+      echo "== ${name}: SAVE STATE BERBEDA${hold:+ (tahan ${hold})}: ${out}" >&2
+      problems=$((problems + 1))
+    fi
+  done
+
   # Golden test (opsional), satu tes per baris: "<frames> <hash> [tombol]".
   # Tombol (mis. "right,a") ditahan selama semua frame, supaya input ikut diuji.
   #   screen.hash → hash layar setelah N frame;

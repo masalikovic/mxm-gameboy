@@ -4,10 +4,15 @@
 //! gb-headless                        mencetak sapaan (smoke test M0)
 //! gb-headless <rom.gb> [maks-siklus] menjalankan ROM, menilai keluaran serial
 //! gb-headless <rom.gb> --frames N [--hold right,a] [--screenshot layar.pgm]
-//!              [--audio] [--wav suara.wav]
+//!              [--audio] [--wav suara.wav] [--state-check M]
 //!                                    menjalankan N frame, mencetak hash layar
 //!                                    (atau hash suara dengan --audio)
 //! ```
+//!
+//! `--state-check M` menguji save state (ADR-0016): setelah N frame state
+//! disimpan; mesin asli lanjut M frame, mesin baru memuat state lalu juga
+//! jalan M frame. Seluruh state keduanya harus sama persis (kode keluar 1
+//! kalau tidak).
 //!
 //! `--hold` menahan tombol selama semua frame (right, left, up, down, a, b,
 //! select, start). Dengan begitu golden test bisa membuktikan bahwa input
@@ -106,7 +111,8 @@ fn main() -> ExitCode {
 /// persis selalu menghasilkan hash yang sama, karena core deterministik.
 fn screen_mode(path: &str, args: &[String]) -> ExitCode {
     const USAGE: &str = "Pakai: gb-headless <rom.gb> --frames N [--hold right,a] \
-                         [--screenshot layar.pgm] [--audio] [--wav suara.wav]";
+                         [--screenshot layar.pgm] [--audio] [--wav suara.wav] \
+                         [--state-check M]";
     let Some(Ok(frames)) = args.first().map(|s| s.parse::<u32>()) else {
         eprintln!("{USAGE}");
         return ExitCode::from(2);
@@ -114,6 +120,7 @@ fn screen_mode(path: &str, args: &[String]) -> ExitCode {
     let mut screenshot = None;
     let mut wav = None;
     let mut audio = false;
+    let mut state_check: Option<u32> = None;
     let mut held = Buttons(0);
     let mut rest = args[1..].iter();
     while let Some(flag) = rest.next() {
@@ -123,6 +130,13 @@ fn screen_mode(path: &str, args: &[String]) -> ExitCode {
         }
         match (flag.as_str(), rest.next()) {
             ("--wav", Some(file)) => wav = Some(file),
+            ("--state-check", Some(more)) => {
+                let Ok(more) = more.parse() else {
+                    eprintln!("{USAGE}");
+                    return ExitCode::from(2);
+                };
+                state_check = Some(more);
+            }
             ("--screenshot", Some(file)) => screenshot = Some(file),
             ("--hold", Some(names)) => match parse_buttons(names) {
                 Ok(buttons) => held = buttons,
@@ -144,7 +158,7 @@ fn screen_mode(path: &str, args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let mut gb = match GameBoy::new(rom.into_boxed_slice()) {
+    let mut gb = match GameBoy::new(rom.clone().into_boxed_slice()) {
         Ok(gb) => gb,
         Err(error) => {
             eprintln!("{error}");
@@ -152,6 +166,9 @@ fn screen_mode(path: &str, args: &[String]) -> ExitCode {
         }
     };
     gb.set_buttons(held);
+    if let Some(more) = state_check {
+        return state_roundtrip(gb, &rom, held, frames, more);
+    }
     let record = audio || wav.is_some();
     if record {
         gb.set_sample_rate(AUDIO_RATE);
@@ -212,6 +229,50 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
     })
+}
+
+/// Uji save state: simpan setelah `frames`, lalu bandingkan mesin asli dan
+/// mesin yang dimuat ulang setelah keduanya jalan `more` frame lagi.
+fn state_roundtrip(mut gb: GameBoy, rom: &[u8], held: Buttons, frames: u32, more: u32) -> ExitCode {
+    let run = |gb: &mut GameBoy, count: u32| -> bool { (0..count).all(|_| gb.run_frame().is_ok()) };
+    if !run(&mut gb, frames) {
+        eprintln!("Berhenti sebelum state disimpan");
+        return ExitCode::from(2);
+    }
+    let snapshot = gb.save_state();
+    let Ok(mut restored) = GameBoy::new(rom.to_vec().into_boxed_slice()) else {
+        return ExitCode::from(2);
+    };
+    restored.set_buttons(held);
+    if let Err(error) = restored.load_state(&snapshot) {
+        eprintln!("Gagal memuat state: {error}");
+        return ExitCode::from(1);
+    }
+    if !run(&mut gb, more) || !run(&mut restored, more) {
+        eprintln!("Berhenti setelah state dimuat");
+        return ExitCode::from(2);
+    }
+    let (a, b) = (gb.save_state(), restored.save_state());
+    if a == b {
+        println!(
+            "state cocok ({} byte, {:016x})",
+            snapshot.len(),
+            fnv1a64(&a)
+        );
+        ExitCode::SUCCESS
+    } else {
+        let first = a
+            .iter()
+            .zip(&b)
+            .position(|(x, y)| x != y)
+            .unwrap_or(a.len().min(b.len()));
+        println!(
+            "STATE BERBEDA mulai byte {first} (dari {} / {})",
+            a.len(),
+            b.len()
+        );
+        ExitCode::from(1)
+    }
 }
 
 /// Sampel −1.0 … +1.0 → bilangan bulat 16-bit.

@@ -20,6 +20,7 @@
 //! - [`joypad`]: 8 tombol dan register P1.
 //! - [`machine`]: [`machine::GameBoy`], yaitu CPU + bus memori lengkap.
 //! - [`ppu`]: chip layar: mode LCD, `LY`, background, framebuffer 160×144.
+//! - [`state`]: save state — seluruh keadaan mesin sebagai byte (ADR-0016).
 //! - [`timer`]: timer DMG (`DIV`, `TIMA`, `TMA`, `TAC`).
 
 #![no_std]
@@ -35,6 +36,7 @@ pub mod disasm;
 pub mod joypad;
 pub mod machine;
 pub mod ppu;
+pub mod state;
 pub mod timer;
 
 /// Versi `gb-core`, diambil dari `Cargo.toml` saat compile.

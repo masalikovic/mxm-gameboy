@@ -15,6 +15,8 @@
 //! ke ditekan. Penyederhanaan: diminta untuk tombol mana pun, tanpa melihat
 //! kelompok yang sedang dipilih P1.
 
+use crate::state::{Reader, StateError, Writer};
+
 /// Satu tombol Game Boy. Nilainya adalah bit di [`Buttons`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Button {
@@ -95,6 +97,21 @@ impl Joypad {
         let newly_pressed = buttons.0 & !self.buttons.0;
         self.buttons = buttons;
         newly_pressed != 0
+    }
+}
+
+impl Joypad {
+    /// Menulis keadaan joypad ke save state (ADR-0016).
+    pub(crate) fn save(&self, w: &mut Writer) {
+        w.u8(self.buttons.0);
+        w.u8(self.select);
+    }
+
+    /// Membaca keadaan joypad dari save state.
+    pub(crate) fn load(&mut self, r: &mut Reader<'_>) -> Result<(), StateError> {
+        self.buttons = Buttons(r.u8()?);
+        self.select = r.u8()?;
+        Ok(())
     }
 }
 

@@ -27,6 +27,7 @@
 pub mod registers;
 
 use crate::bus::Bus;
+use crate::state::{Reader, StateError, Writer};
 pub use registers::{Flag, Registers};
 
 /// Alasan [`Cpu::step`] tidak bisa menjalankan instruksi.
@@ -823,6 +824,33 @@ impl Cpu {
     const fn unimplemented(&mut self, opcode: u8, address: u16) -> CpuError {
         self.regs.pc = address;
         CpuError::Unimplemented { opcode, address }
+    }
+}
+
+impl Cpu {
+    /// Menulis keadaan CPU ke save state (ADR-0016).
+    pub(crate) fn save(&self, w: &mut Writer) {
+        let r = &self.regs;
+        for value in [r.af(), r.bc(), r.de(), r.hl(), r.sp, r.pc] {
+            w.u16(value);
+        }
+        w.bool(self.ime);
+        w.bool(self.ei_pending);
+        w.bool(self.halted);
+    }
+
+    /// Membaca keadaan CPU dari save state.
+    pub(crate) fn load(&mut self, r: &mut Reader<'_>) -> Result<(), StateError> {
+        self.regs.set_af(r.u16()?);
+        self.regs.set_bc(r.u16()?);
+        self.regs.set_de(r.u16()?);
+        self.regs.set_hl(r.u16()?);
+        self.regs.sp = r.u16()?;
+        self.regs.pc = r.u16()?;
+        self.ime = r.bool()?;
+        self.ei_pending = r.bool()?;
+        self.halted = r.bool()?;
+        Ok(())
     }
 }
 

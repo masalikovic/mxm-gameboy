@@ -50,7 +50,7 @@ Detail pemasangan alat untuk Windows: [docs/setup-windows.md](docs/setup-windows
 | M4 | PPU: layar, tile, V-blank; gambar pertama di HP (5,3 ms/frame) | ✅ selesai ([jurnal](docs/jurnal/m4.md)) |
 | M5 | Sprite, window, tombol sentuh & keyboard; game Kejar Jeruk dimainkan di HP | ✅ selesai ([jurnal](docs/jurnal/m5.md)) |
 | M6 | Cartridge MBC1/2/3/5 (43 ROM uji); rekor Kejar Jeruk tersimpan di HP | ✅ selesai ([jurnal](docs/jurnal/m6.md)) |
-| M7 | Suara: APU 4 kanal via Web Audio | belum mulai |
+| M7 | Suara: APU 4 kanal (Blargg dmg_sound 9/12) via Web Audio; Kejar Jeruk berbunyi di HP | ✅ selesai ([jurnal](docs/jurnal/m7.md)) |
 | M8 | Debugger, save state, PWA offline | belum mulai |
 
 ## Legal

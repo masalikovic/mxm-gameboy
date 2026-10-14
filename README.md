@@ -49,8 +49,9 @@ Detail pemasangan alat untuk Windows: [docs/setup-windows.md](docs/setup-windows
 | M3 | Timer & interrupt, HALT (11/11 Blargg); homebrew C pertama | ✅ selesai ([jurnal](docs/jurnal/m3.md)) |
 | M4 | PPU: layar, tile, V-blank; gambar pertama di HP (5,3 ms/frame) | ✅ selesai ([jurnal](docs/jurnal/m4.md)) |
 | M5 | Sprite, window, tombol sentuh & keyboard; game Kejar Jeruk dimainkan di HP | ✅ selesai ([jurnal](docs/jurnal/m5.md)) |
-| M6 | Cartridge: MBC, ROM > 32 KiB, simpan permainan | belum mulai |
-| M7–M8 | audio → debugger | belum mulai |
+| M6 | Cartridge MBC1/2/3/5 (43 ROM uji); rekor Kejar Jeruk tersimpan di HP | ✅ selesai ([jurnal](docs/jurnal/m6.md)) |
+| M7 | Suara: APU 4 kanal via Web Audio | belum mulai |
+| M8 | Debugger, save state, PWA offline | belum mulai |
 
 ## Legal
 

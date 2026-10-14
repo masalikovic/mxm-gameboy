@@ -49,7 +49,11 @@ build="$(git rev-parse --short=12 HEAD 2>/dev/null || echo lokal)"
 if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
   build="${build}-$(date +%s)"
 fi
-sed -i.bak "s/__BUILD__/${build}/g" dist/index.html dist/main.js dist/input.js dist/save.js dist/audio.js dist/debugger.js
+sed -i.bak "s/__BUILD__/${build}/g" dist/index.html dist/main.js dist/input.js dist/save.js dist/audio.js dist/debugger.js dist/sw.js
+# 5b. Service worker (ADR-0017) perlu tahu ROM demo mana yang ikut disimpan
+#     untuk offline: daftar nama berkas di dist/roms sebagai array JSON.
+roms="$(cd dist/roms && ls -1 ./*.gb 2>/dev/null | sed 's|^\./||; s/.*/"&"/' | paste -sd, -)"
+sed -i.bak "s/__ROMS__/[${roms}]/" dist/sw.js
 rm -f dist/*.bak
 
 echo "Selesai: dist/ siap (build ${build}). Coba lokal: cd dist && python3 -m http.server 8000"

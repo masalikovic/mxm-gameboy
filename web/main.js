@@ -366,3 +366,13 @@ try {
   stop(`Error: ${error.message ?? error}`);
   console.error(error);
 }
+
+// PWA (M8, ADR-0017): simpan aplikasi untuk dipakai tanpa internet.
+// Service worker hanya boleh di https atau localhost; di http jaringan lokal
+// (mis. http://192.168.x.x) halaman tetap jalan, hanya tanpa mode offline.
+if ('serviceWorker' in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register('./sw.js').catch((error) => {
+    console.warn('Service worker tidak terpasang:', error);
+  });
+}
+

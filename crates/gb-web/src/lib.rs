@@ -8,6 +8,7 @@
 //!
 //! Fungsi dan tipe bertanda `#[wasm_bindgen]` bisa dipakai dari `web/main.js`.
 
+use gb_core::bus::Bus;
 use gb_core::joypad::Buttons;
 use gb_core::machine::GameBoy;
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -118,6 +119,49 @@ impl Emulator {
         planar.extend(interleaved.iter().step_by(2));
         planar.extend(interleaved.iter().skip(1).step_by(2));
         planar
+    }
+
+    /// Register CPU untuk debugger: `[AF, BC, DE, HL, SP, PC, status]`.
+    /// `status` bit 0 = interrupt menyala (IME), bit 1 = CPU sedang HALT.
+    #[must_use]
+    pub fn registers(&self) -> Vec<u16> {
+        let cpu = &self.gb.cpu;
+        let r = &cpu.regs;
+        let status = u16::from(cpu.interrupts_enabled()) | u16::from(cpu.is_halted()) << 1;
+        vec![r.af(), r.bc(), r.de(), r.hl(), r.sp, r.pc, status]
+    }
+
+    /// `count` instruksi mulai dari PC, masing-masing satu baris teks:
+    /// `"0150  3E 3C     LD A,$3C"`.
+    pub fn disassembly(&mut self, count: usize) -> Vec<String> {
+        let mut address = self.gb.cpu.regs.pc;
+        let mut lines = Vec::with_capacity(count);
+        for _ in 0..count {
+            let instruction = self.gb.disassemble_at(address);
+            let bytes: Vec<String> = (0..u16::from(instruction.length))
+                .map(|i| format!("{:02X}", self.gb.bus.read(address.wrapping_add(i))))
+                .collect();
+            lines.push(format!(
+                "{address:04X}  {:<9} {}",
+                bytes.join(" "),
+                instruction.text
+            ));
+            address = address.wrapping_add(u16::from(instruction.length));
+        }
+        lines
+    }
+
+    /// Menjalankan tepat satu instruksi (tombol "Langkah" di debugger).
+    ///
+    /// # Errors
+    ///
+    /// Pesan error kalau CPU bertemu opcode yang belum ada.
+    #[wasm_bindgen(js_name = stepInstruction)]
+    pub fn step_instruction(&mut self) -> Result<(), String> {
+        self.gb
+            .step()
+            .map(|_| ())
+            .map_err(|error| format!("{error:?}"))
     }
 
     /// Salinan layar: 160 × 144 byte, tingkat kegelapan 0 (terang) – 3 (gelap).
@@ -233,6 +277,23 @@ mod tests {
         let energy = |side: &[f32]| side.iter().map(|s| s.abs()).sum::<f32>();
         assert!(energy(left) > 1.0, "paruh pertama = kiri, berbunyi");
         assert!(energy(right) < 1e-6, "paruh kedua = kanan, sunyi");
+    }
+
+    #[test]
+    fn debugger_shows_registers_and_next_instructions() {
+        // LD A,$3C / JR -2
+        let mut rom = vec![0u8; 0x8000];
+        rom[0x100..0x104].copy_from_slice(&[0x3E, 0x3C, 0x18, 0xFE]);
+        let mut emulator = Emulator::new(&rom).expect("ROM cukup besar");
+        assert_eq!(emulator.registers()[5], 0x0100, "PC");
+        assert_eq!(
+            emulator.disassembly(2),
+            ["0100  3E 3C     LD A,$3C", "0102  18 FE     JR $0102"]
+        );
+        emulator.step_instruction().expect("opcode ada");
+        let registers = emulator.registers();
+        assert_eq!(registers[0] >> 8, 0x3C, "A setelah satu langkah");
+        assert_eq!(registers[5], 0x0102, "PC maju 2 byte");
     }
 
     #[test]

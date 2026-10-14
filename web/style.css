@@ -195,6 +195,41 @@ body {
   .keys { display: none; }
 }
 
+.debugger {
+  margin: 14px 0 0;
+  padding: 8px 10px;
+  border: 1px solid #3a3733;
+  border-radius: 8px;
+  color: var(--gray);
+  font-size: 13px;
+}
+
+.debugger summary {
+  cursor: pointer;
+  color: var(--cream);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.debug-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 6px;
+}
+
+.debug-buttons .pill:disabled { opacity: 0.4; cursor: default; }
+
+.debug-view {
+  margin: 6px 0 0;
+  overflow-x: auto;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--cream);
+  white-space: pre;
+}
+
 .demo-picker {
   display: flex;
   align-items: center;

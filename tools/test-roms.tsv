@@ -8,8 +8,10 @@
 # Kolom (dipisah TAB):
 #   sha256   nama-lokal   path-di-repo-sumber   hasil-yang-diharapkan
 #
-# Konvensi lulus: Blargg mencetak "Passed"; Mooneye mengirim 3,5,8,13,21,34
-# lewat serial (gb-headless mengenali keduanya).
+# Konvensi lulus (gb-headless mengenali ketiganya):
+#   Blargg cpu_instrs  : mencetak "Passed" lewat serial;
+#   Blargg dmg_sound   : status 0x00 di RAM cartridge A000 (tanda DE B0 61);
+#   Mooneye            : mengirim 3,5,8,13,21,34 lewat serial.
 #
 # hasil-yang-diharapkan:
 #   pass          harus "Passed"; kalau tidak, CI merah.
@@ -59,3 +61,15 @@ f4c7e8c471fd77776f63a1bdb465b2241e4686b4f02c7c90a963240da54de2b5	mbc5-rom_4Mb.gb
 0d47ec7e884c8236f0dba4d26fbebe490305850b41755c0118d18997adf1274a	mbc5-rom_512kb.gb	c-sp:mooneye-test-suite/emulator-only/mbc5/rom_512kb.gb	pass
 80c12a1c01224439e33eb385d64028bfca14e46f5b5f3eece5495167351bf0ec	mbc5-rom_64Mb.gb	c-sp:mooneye-test-suite/emulator-only/mbc5/rom_64Mb.gb	pass
 3b2d6d717c4f5adf0179ed05f3a206231f17855591084ca910fe0ef2c7e5c112	mbc5-rom_8Mb.gb	c-sp:mooneye-test-suite/emulator-only/mbc5/rom_8Mb.gb	pass
+c6b9fa4b9d9d26919b33ebe78a6ef19ad2df854186cf741ca2746179cc9fc3f1	dmg_sound-01-registers.gb	c-sp:blargg/dmg_sound/rom_singles/01-registers.gb	pass
+745544125a5065729cab22494a79f65c3836e4426f89e4cc43d330afe711b413	dmg_sound-02-len_ctr.gb	c-sp:blargg/dmg_sound/rom_singles/02-len ctr.gb	pass
+bb11e7266a7143bafb8aa2a73ca70957c6011f36cd4e0b6aaf0678378294e75c	dmg_sound-03-trigger.gb	c-sp:blargg/dmg_sound/rom_singles/03-trigger.gb	pass
+58bc14541d91bb020c7761b423825b3432cfde7ee2fa4d1116126e4cb9573c7e	dmg_sound-04-sweep.gb	c-sp:blargg/dmg_sound/rom_singles/04-sweep.gb	pass
+f582ca3a0b2544b9510797d7d4dd56a17f53e000511b0ae88a6353200dcd9167	dmg_sound-05-sweep_details.gb	c-sp:blargg/dmg_sound/rom_singles/05-sweep details.gb	pass
+1a511e95e84ed6fe6077cabf451a98b4e01fdef59cadae3efbc178113eb064b1	dmg_sound-06-overflow_on_trigger.gb	c-sp:blargg/dmg_sound/rom_singles/06-overflow on trigger.gb	pass
+56bf5b0c18b996929c9b052ba5a02b450cb619bb6c24cc1d34ea20951c977bf7	dmg_sound-07-len_sweep_period_sync.gb	c-sp:blargg/dmg_sound/rom_singles/07-len sweep period sync.gb	pass
+31cb41f7be106a708ec0bc94f2a9d0b506d247cd591e9d0a2a6a960dc3bf6595	dmg_sound-08-len_ctr_during_power.gb	c-sp:blargg/dmg_sound/rom_singles/08-len ctr during power.gb	pass
+378b86f6a25daa16855260d7ef0c24e48146ba05df434a0b5413983a1447e875	dmg_sound-09-wave_read_while_on.gb	c-sp:blargg/dmg_sound/rom_singles/09-wave read while on.gb	fail:akses-gelombang-tengah-instruksi (ADR-0015)
+fa63c8ed7473411e54285d318e33bf23ff6d637ed2caa7555ddeaf80578e3279	dmg_sound-10-wave_trigger_while_on.gb	c-sp:blargg/dmg_sound/rom_singles/10-wave trigger while on.gb	fail:akses-gelombang-tengah-instruksi (ADR-0015)
+d27dab46e8b881028723f1975328572d38e25d295289b974cd698916a0be5dab	dmg_sound-11-regs_after_power.gb	c-sp:blargg/dmg_sound/rom_singles/11-regs after power.gb	pass
+2efbecd2c6d40928d44f45da4f634626bcd2790165b3949aedfe377c73913774	dmg_sound-12-wave_write_while_on.gb	c-sp:blargg/dmg_sound/rom_singles/12-wave write while on.gb	fail:akses-gelombang-tengah-instruksi (ADR-0015)

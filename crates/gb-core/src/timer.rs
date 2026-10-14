@@ -33,6 +33,13 @@ pub struct Timer {
 }
 
 impl Timer {
+    /// Pencacah 16-bit internal. Bus memakainya untuk frame sequencer APU
+    /// (bit 12 jatuh 1 → 0 = satu detak 512 Hz, ADR-0015).
+    #[must_use]
+    pub const fn counter(&self) -> u16 {
+        self.counter
+    }
+
     /// Membaca register timer di `address` (0xFF04–0xFF07).
     #[must_use]
     pub const fn read(&self, address: u16) -> u8 {

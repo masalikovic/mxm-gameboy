@@ -27,6 +27,7 @@
 
 use alloc::boxed::Box;
 
+use crate::apu::Apu;
 use crate::bus::Bus;
 use crate::cartridge::{Cartridge, CartridgeError};
 use crate::cpu::{Cpu, CpuError};
@@ -52,52 +53,11 @@ const TIMER_INTERRUPT: u8 = 0b0000_0100;
 /// sekali tidak ada di DMG (termasuk register khusus Game Boy Color seperti
 /// KEY1 di 0xFF4D) terbaca 0xFF. Program memakai ini untuk mengenali
 /// mesinnya: kalau KEY1 terbaca 0x00, program mengira berjalan di CGB.
-/// Timer, PPU, joypad, dan IF mengurus bitnya sendiri; tabel ini untuk sisanya.
+/// Timer, PPU, APU, joypad, dan IF mengurus bitnya sendiri; tabel ini untuk sisanya.
 const IO_UNUSED_BITS: [u8; 0x80] = {
     let mut mask = [0xFF; 0x80];
-    let used: [(usize, u8); 31] = [
-        (0x01, 0x00), // SB
-        (0x02, 0x7E), // SC: hanya bit 7 dan 0
-        (0x10, 0x80), // suara kanal 1 (M7)
-        (0x11, 0x3F),
-        (0x12, 0x00),
-        (0x13, 0xFF),
-        (0x14, 0xBF),
-        (0x16, 0x3F), // kanal 2
-        (0x17, 0x00),
-        (0x18, 0xFF),
-        (0x19, 0xBF),
-        (0x1A, 0x7F), // kanal 3
-        (0x1B, 0xFF),
-        (0x1C, 0x9F),
-        (0x1D, 0xFF),
-        (0x1E, 0xBF),
-        (0x20, 0xFF), // kanal 4
-        (0x21, 0x00),
-        (0x22, 0x00),
-        (0x23, 0xBF),
-        (0x24, 0x00), // volume utama
-        (0x25, 0x00), // panning
-        (0x26, 0x70), // NR52: bit 6–4 tidak terpakai
-        (0x30, 0x00), // RAM gelombang 0xFF30–0xFF3F
-        (0x31, 0x00),
-        (0x32, 0x00),
-        (0x33, 0x00),
-        (0x34, 0x00),
-        (0x35, 0x00),
-        (0x36, 0x00),
-        (0x37, 0x00),
-    ];
-    let mut i = 0;
-    while i < used.len() {
-        mask[used[i].0] = used[i].1;
-        i += 1;
-    }
-    let mut wave = 0x38;
-    while wave <= 0x3F {
-        mask[wave] = 0x00;
-        wave += 1;
-    }
+    mask[0x01] = 0x00; // SB
+    mask[0x02] = 0x7E; // SC: hanya bit 7 dan 0
     mask
 };
 
@@ -110,6 +70,7 @@ pub struct SystemBus {
     ie: u8,
     timer: Timer,
     ppu: Ppu,
+    apu: Apu,
     joypad: Joypad,
     serial_out: Option<u8>,
 }
@@ -126,6 +87,7 @@ impl SystemBus {
             ie: 0,
             timer: Timer::default(),
             ppu: Ppu::new(),
+            apu: Apu::new(),
             joypad: Joypad::new(),
             serial_out: None,
         }
@@ -151,6 +113,11 @@ impl SystemBus {
         &mut self.cartridge
     }
 
+    /// APU (suara), untuk mengambil sampel.
+    pub const fn apu_mut(&mut self) -> &mut Apu {
+        &mut self.apu
+    }
+
     /// PPU (layar), untuk membaca framebuffer.
     #[must_use]
     pub const fn ppu(&self) -> &Ppu {
@@ -164,11 +131,23 @@ impl SystemBus {
 
     /// Memajukan komponen di balik bus sebanyak `cycles` T-cycle.
     pub fn tick(&mut self, cycles: u8) {
+        let before = self.timer.counter();
         if self.timer.tick(cycles) {
             self.request_interrupt(TIMER_INTERRUPT);
         }
+        self.clock_frame_sequencer(before);
+        self.apu.tick(cycles);
         let ppu_interrupts = self.ppu.tick(cycles);
         self.request_interrupt(ppu_interrupts);
+    }
+
+    /// Frame sequencer APU berdetak saat bit 12 pencacah timer jatuh 1 → 0
+    /// (512 Hz, ADR-0015). Satu instruksi paling lama 24 siklus, jadi paling
+    /// banyak satu tepi di antara `before` dan sekarang.
+    fn clock_frame_sequencer(&mut self, before: u16) {
+        if before & 0x1000 != 0 && self.timer.counter() & 0x1000 == 0 {
+            self.apu.frame_sequencer();
+        }
     }
 
     /// Mengganti tombol yang sedang ditekan; meminta interrupt joypad kalau
@@ -210,6 +189,7 @@ impl Bus for SystemBus {
             P1 => self.joypad.read(),
             0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.read_register(address),
             0xFF04..=0xFF07 => self.timer.read(address),
+            0xFF10..=0xFF3F => self.apu.read(address),
             // Bit 7–5 IF tidak dipakai dan terbaca 1.
             IF => self.io[a - 0xFF00] | 0xE0,
             0xFF01..=0xFF7F => self.io[a - 0xFF00] | IO_UNUSED_BITS[a - 0xFF00],
@@ -244,10 +224,14 @@ impl Bus for SystemBus {
                 self.io[usize::from(SC - 0xFF00)] = value & 0x7F;
             }
             0xFF04..=0xFF07 => {
+                let before = self.timer.counter();
                 if self.timer.write(address, value) {
                     self.request_interrupt(TIMER_INTERRUPT);
                 }
+                // Menulis DIV bisa menjatuhkan bit 12: APU ikut berdetak.
+                self.clock_frame_sequencer(before);
             }
+            0xFF10..=0xFF3F => self.apu.write(address, value),
             IF => self.io[a - 0xFF00] = value & 0x1F,
             0xFF01..=0xFF7F => self.io[a - 0xFF00] = value,
             0xFF80..=0xFFFE => self.hram[a - 0xFF80] = value,
@@ -315,6 +299,16 @@ impl GameBoy {
         self.bus.set_buttons(buttons);
     }
 
+    /// Laju sampel suara yang diinginkan adapter; 0 = tanpa suara (ADR-0015).
+    pub fn set_sample_rate(&mut self, rate: u32) {
+        self.bus.apu_mut().set_sample_rate(rate);
+    }
+
+    /// Sampel suara yang sudah dibuat, stereo berselang-seling.
+    pub fn take_samples(&mut self) -> alloc::vec::Vec<f32> {
+        self.bus.apu_mut().take_samples()
+    }
+
     /// Layar terakhir: 160×144 tingkat kegelapan 0 (terang) – 3 (gelap).
     #[must_use]
     pub fn framebuffer(&self) -> &[u8] {
@@ -352,6 +346,24 @@ mod tests {
         assert_eq!(bus.read(0xFF01), 0x00);
         bus.write(0xFF30, 0x12);
         assert_eq!(bus.read(0xFF30), 0x12, "RAM gelombang suara");
+    }
+
+    #[test]
+    fn writing_div_clocks_the_apu_frame_sequencer() {
+        // Kanal 2 dengan panjang 1 dan length menyala; langkah berikut = 0.
+        let setup = |bus: &mut SystemBus| {
+            for _ in 0..(0x1000 / 4) {
+                bus.tick(4); // pencacah 0x1000: bit 12 = 1, belum ada tepi turun
+            }
+            bus.write(0xFF16, 0x3F);
+            bus.write(0xFF17, 0xF0);
+            bus.write(0xFF19, 0xC0);
+        };
+        let mut bus = bus();
+        setup(&mut bus);
+        assert_eq!(bus.read(0xFF26) & 0b10, 0b10, "kanal 2 berbunyi");
+        bus.write(0xFF04, 0); // DIV dikosongkan: bit 12 jatuh → detak length
+        assert_eq!(bus.read(0xFF26) & 0b10, 0, "length habis, kanal berhenti");
     }
 
     #[test]

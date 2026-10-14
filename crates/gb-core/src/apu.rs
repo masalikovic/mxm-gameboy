@@ -17,6 +17,7 @@
 //! NR51, dikali volume NR50, lalu disaring *high-pass*. Hasilnya sampel
 //! stereo `f32` pada laju yang dipasang adapter ([`Apu::set_sample_rate`]).
 
+use crate::state::{Reader, StateError, Writer};
 use alloc::vec::Vec;
 
 /// Frekuensi jam CPU, satuan waktu core.
@@ -305,7 +306,7 @@ impl Noise {
 }
 
 /// Chip suara.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Apu {
     powered: bool,
     /// Register mentah 0xFF10–0xFF26, untuk dibaca kembali.
@@ -669,6 +670,136 @@ fn control(length: &mut Length, value: u8, extra: bool, max: u16) -> bool {
         };
     }
     disable
+}
+
+// --- Save state (ADR-0016) -------------------------------------------------
+// Laju sampel, buffer sampel, dan filter high-pass tidak ikut: itu urusan
+// adapter dan keadaan sementara, bukan keadaan chip.
+
+impl Length {
+    fn save(&self, w: &mut Writer) {
+        w.bool(self.enabled);
+        w.u16(self.counter);
+    }
+
+    fn load(&mut self, r: &mut Reader<'_>) -> Result<(), StateError> {
+        self.enabled = r.bool()?;
+        self.counter = r.u16()?;
+        Ok(())
+    }
+}
+
+impl Envelope {
+    fn save(&self, w: &mut Writer) {
+        w.u8(self.register);
+        w.u8(self.volume);
+        w.u8(self.timer);
+    }
+
+    fn load(&mut self, r: &mut Reader<'_>) -> Result<(), StateError> {
+        self.register = r.u8()?;
+        self.volume = r.u8()?;
+        self.timer = r.u8()?;
+        Ok(())
+    }
+}
+
+impl Square {
+    fn save(&self, w: &mut Writer) {
+        w.bool(self.enabled);
+        w.u8(self.duty);
+        w.u8(self.duty_step);
+        w.u16(self.frequency);
+        w.u32(self.timer);
+        self.length.save(w);
+        self.envelope.save(w);
+        w.u8(self.sweep.register);
+        w.bool(self.sweep.enabled);
+        w.u16(self.sweep.shadow);
+        w.u8(self.sweep.timer);
+        w.bool(self.sweep.negate_used);
+    }
+
+    fn load(&mut self, r: &mut Reader<'_>) -> Result<(), StateError> {
+        self.enabled = r.bool()?;
+        self.duty = r.u8()? & 3;
+        self.duty_step = r.u8()? & 7;
+        self.frequency = r.u16()? & 0x7FF;
+        self.timer = r.u32()?;
+        self.length.load(r)?;
+        self.envelope.load(r)?;
+        self.sweep.register = r.u8()?;
+        self.sweep.enabled = r.bool()?;
+        self.sweep.shadow = r.u16()?;
+        self.sweep.timer = r.u8()?;
+        self.sweep.negate_used = r.bool()?;
+        Ok(())
+    }
+}
+
+impl Apu {
+    /// Tes: kosongkan bagian yang sengaja tidak ikut save state.
+    #[cfg(test)]
+    pub(crate) fn clear_transient(&mut self) {
+        self.sample_rate = 0;
+        self.sample_clock = 0;
+        self.samples.clear();
+        self.capacitor = [0.0; 2];
+        self.charge_factor = 0.0;
+    }
+
+    /// Menulis keadaan chip suara ke save state.
+    pub(crate) fn save(&self, w: &mut Writer) {
+        w.bool(self.powered);
+        w.bytes(&self.registers);
+        w.bytes(&self.wave_ram);
+        self.ch1.save(w);
+        self.ch2.save(w);
+        let ch3 = &self.ch3;
+        w.bool(ch3.enabled);
+        w.bool(ch3.dac_enabled);
+        w.u8(ch3.volume_code);
+        w.u16(ch3.frequency);
+        w.u32(ch3.timer);
+        w.u8(ch3.position);
+        w.u8(ch3.sample);
+        ch3.length.save(w);
+        let ch4 = &self.ch4;
+        w.bool(ch4.enabled);
+        w.u8(ch4.register);
+        w.u16(ch4.lfsr);
+        w.u32(ch4.timer);
+        ch4.length.save(w);
+        ch4.envelope.save(w);
+        w.u8(self.frame_step);
+    }
+
+    /// Membaca keadaan chip suara dari save state.
+    pub(crate) fn load(&mut self, r: &mut Reader<'_>) -> Result<(), StateError> {
+        self.powered = r.bool()?;
+        r.bytes_into(&mut self.registers)?;
+        r.bytes_into(&mut self.wave_ram)?;
+        self.ch1.load(r)?;
+        self.ch2.load(r)?;
+        let ch3 = &mut self.ch3;
+        ch3.enabled = r.bool()?;
+        ch3.dac_enabled = r.bool()?;
+        ch3.volume_code = r.u8()? & 3;
+        ch3.frequency = r.u16()? & 0x7FF;
+        ch3.timer = r.u32()?;
+        ch3.position = r.u8()? & 31;
+        ch3.sample = r.u8()? & 0x0F;
+        ch3.length.load(r)?;
+        let ch4 = &mut self.ch4;
+        ch4.enabled = r.bool()?;
+        ch4.register = r.u8()?;
+        ch4.lfsr = r.u16()?;
+        ch4.timer = r.u32()?;
+        ch4.length.load(r)?;
+        ch4.envelope.load(r)?;
+        self.frame_step = r.u8()? & 7;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

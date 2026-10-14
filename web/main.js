@@ -215,6 +215,39 @@ async function startDemo(file) {
   }
 }
 
+// Save state (M8, ADR-0016): seluruh mesin, satu slot per ROM.
+// Kunci sama dengan simpan permainan (judul + sidik isi ROM), diberi akhiran.
+function stateKey() {
+  return current ? `${saveKey(current.bytes, emulator.title())}:state` : null;
+}
+
+document.getElementById('state-save').addEventListener('click', () => {
+  if (!emulator) return;
+  const time = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+  status.textContent = storeSave(stateKey(), emulator.saveState())
+    ? `State tersimpan (${time})`
+    : 'State tidak bisa disimpan (penyimpanan browser penuh atau dilarang)';
+});
+
+document.getElementById('state-load').addEventListener('click', () => {
+  if (!emulator) return;
+  const saved = loadSave(stateKey());
+  if (!saved) {
+    status.textContent = 'Belum ada state tersimpan untuk ROM ini.';
+    return;
+  }
+  try {
+    emulator.loadState(saved);
+  } catch (error) {
+    status.textContent = `${error}`; // mesin tidak berubah
+    return;
+  }
+  emulator.takeSamples(); // suara dari sebelum memuat dibuang
+  draw();
+  debug.render(emulator, paused);
+  status.textContent = 'State dimuat.';
+});
+
 // Debugger (M8): jeda, satu instruksi, satu frame.
 const debug = createDebugger({
   panel: document.getElementById('debugger'),

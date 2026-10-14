@@ -33,7 +33,9 @@ use crate::cartridge::{Cartridge, CartridgeError};
 use crate::cpu::{Cpu, CpuError};
 use crate::joypad::{Buttons, JOYPAD_INTERRUPT, Joypad};
 use crate::ppu::Ppu;
+use crate::state::{Reader, StateError, Writer};
 use crate::timer::Timer;
+use alloc::vec::Vec;
 
 /// Alamat register serial: byte data (SB) dan kontrol (SC).
 const SB: u16 = 0xFF01;
@@ -62,6 +64,7 @@ const IO_UNUSED_BITS: [u8; 0x80] = {
 };
 
 /// Bus memori lengkap sebuah Game Boy DMG.
+#[derive(Clone, PartialEq)]
 pub struct SystemBus {
     cartridge: Cartridge,
     wram: [u8; 0x2000],
@@ -241,6 +244,7 @@ impl Bus for SystemBus {
 }
 
 /// Satu Game Boy: CPU + bus.
+#[derive(Clone, PartialEq)]
 pub struct GameBoy {
     /// CPU SM83.
     pub cpu: Cpu,
@@ -321,6 +325,99 @@ impl GameBoy {
     #[must_use]
     pub fn framebuffer(&self) -> &[u8] {
         self.bus.ppu().framebuffer()
+    }
+}
+
+impl SystemBus {
+    /// Menulis RAM kerja, I/O, dan semua komponen ke save state (ADR-0016).
+    fn save(&self, w: &mut Writer) {
+        w.bytes(&self.wram);
+        w.bytes(&self.io);
+        w.bytes(&self.hram);
+        w.u8(self.ie);
+        w.bool(self.serial_out.is_some());
+        w.u8(self.serial_out.unwrap_or(0));
+        self.timer.save(w);
+        self.ppu.save(w);
+        self.apu.save(w);
+        self.joypad.save(w);
+        self.cartridge.save(w);
+    }
+
+    fn load(&mut self, r: &mut Reader<'_>) -> Result<(), StateError> {
+        r.bytes_into(&mut self.wram)?;
+        r.bytes_into(&mut self.io)?;
+        r.bytes_into(&mut self.hram)?;
+        self.ie = r.u8()?;
+        let has_serial = r.bool()?;
+        let serial = r.u8()?;
+        self.serial_out = has_serial.then_some(serial);
+        self.timer.load(r)?;
+        self.ppu.load(r)?;
+        self.apu.load(r)?;
+        self.joypad.load(r)?;
+        self.cartridge.load(r)
+    }
+}
+
+impl GameBoy {
+    /// Tes: komponen pertama yang berbeda dari `other`, setelah bagian yang
+    /// sengaja tidak disimpan dikosongkan di kedua sisi. `None` = identik.
+    #[cfg(test)]
+    pub(crate) fn first_difference(&self, other: &Self) -> Option<&'static str> {
+        let (mut a, mut b) = (self.clone(), other.clone());
+        for gb in [&mut a, &mut b] {
+            gb.bus.apu.clear_transient();
+            gb.bus.ppu.clear_transient();
+            gb.bus.cartridge.clear_transient();
+        }
+        let (x, y) = (&a.bus, &b.bus);
+        [
+            ("cpu", a.cpu == b.cpu),
+            (
+                "ram kerja/io/hram/ie/serial",
+                x.wram == y.wram
+                    && x.io == y.io
+                    && x.hram == y.hram
+                    && x.ie == y.ie
+                    && x.serial_out == y.serial_out,
+            ),
+            ("timer", x.timer == y.timer),
+            ("ppu", x.ppu == y.ppu),
+            ("apu", x.apu == y.apu),
+            ("joypad", x.joypad == y.joypad),
+            ("cartridge", x.cartridge == y.cartridge),
+        ]
+        .into_iter()
+        .find(|(_, same)| !same)
+        .map(|(name, _)| name)
+    }
+
+    /// Save state: seluruh keadaan mesin sebagai byte (ADR-0016).
+    #[must_use]
+    pub fn save_state(&self) -> Vec<u8> {
+        let mut w = Writer::new(self.bus.cartridge.fingerprint());
+        self.cpu.save(&mut w);
+        self.bus.save(&mut w);
+        w.finish()
+    }
+
+    /// Memuat save state. Semua-atau-tidak-sama-sekali: state dibaca ke
+    /// salinan dulu, jadi state yang rusak tidak meninggalkan mesin setengah
+    /// termuat.
+    ///
+    /// # Errors
+    ///
+    /// [`StateError`] kalau berkas bukan state, versinya lain, dibuat dari
+    /// ROM lain, atau rusak.
+    pub fn load_state(&mut self, bytes: &[u8]) -> Result<(), StateError> {
+        let mut r = Reader::new(bytes, self.bus.cartridge.fingerprint())?;
+        let mut copy = self.clone();
+        copy.cpu.load(&mut r)?;
+        copy.bus.load(&mut r)?;
+        r.finish()?;
+        *self = copy;
+        Ok(())
     }
 }
 

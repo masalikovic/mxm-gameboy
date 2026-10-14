@@ -164,6 +164,24 @@ impl Emulator {
             .map_err(|error| format!("{error:?}"))
     }
 
+    /// Save state: seluruh keadaan mesin sebagai byte (ADR-0016).
+    #[wasm_bindgen(js_name = saveState)]
+    #[must_use]
+    pub fn save_state(&self) -> Vec<u8> {
+        self.gb.save_state()
+    }
+
+    /// Memuat save state; mesin tidak berubah kalau gagal.
+    ///
+    /// # Errors
+    ///
+    /// Pesan yang bisa dibaca kalau state rusak, dari versi lain, atau dari
+    /// ROM lain.
+    #[wasm_bindgen(js_name = loadState)]
+    pub fn load_state(&mut self, bytes: &[u8]) -> Result<(), String> {
+        self.gb.load_state(bytes).map_err(|error| error.to_string())
+    }
+
     /// Salinan layar: 160 × 144 byte, tingkat kegelapan 0 (terang) – 3 (gelap).
     #[must_use]
     pub fn framebuffer(&self) -> Vec<u8> {
@@ -294,6 +312,22 @@ mod tests {
         let registers = emulator.registers();
         assert_eq!(registers[0] >> 8, 0x3C, "A setelah satu langkah");
         assert_eq!(registers[5], 0x0102, "PC maju 2 byte");
+    }
+
+    #[test]
+    fn save_state_round_trip_and_readable_errors() {
+        let mut rom = vec![0u8; 0x8000];
+        rom[0x100..0x104].copy_from_slice(&[0x3C, 0x00, 0x18, 0xFC]); // INC A / NOP / JR -4
+        let mut emulator = Emulator::new(&rom).expect("ROM cukup besar");
+        emulator.run_frame().expect("tidak ada opcode yang hilang");
+        let state = emulator.save_state();
+        let a = emulator.registers()[0];
+        emulator.run_frame().expect("tidak ada opcode yang hilang");
+        assert_ne!(emulator.registers()[0], a, "A terus berubah");
+        emulator.load_state(&state).expect("state valid");
+        assert_eq!(emulator.registers()[0], a, "kembali ke titik simpan");
+        let error = emulator.load_state(b"xx").err().unwrap_or_default();
+        assert!(error.contains("bukan save state"), "{error}");
     }
 
     #[test]

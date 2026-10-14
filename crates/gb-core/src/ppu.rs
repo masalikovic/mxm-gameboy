@@ -61,10 +61,12 @@ pub const VBLANK_INTERRUPT: u8 = 0b0000_0001;
 /// Bit interrupt STAT di IF.
 pub const STAT_INTERRUPT: u8 = 0b0000_0010;
 
+use crate::state::{Reader, StateError, Writer};
 use alloc::boxed::Box;
 use alloc::vec;
 
 /// PPU DMG, beserta VRAM dan OAM yang hanya ia gunakan.
+#[derive(Clone, PartialEq, Eq)]
 pub struct Ppu {
     vram: [u8; 0x2000],
     oam: [u8; 0xA0],
@@ -439,6 +441,69 @@ impl Ppu {
             0x9000u16.wrapping_add_signed(i16::from(i8::from_le_bytes([tile])) * 16)
         };
         self.row_pixel(base + u16::from(line) * 2, 7 - col)
+    }
+}
+
+impl Ppu {
+    /// Tes: kosongkan bagian yang sengaja tidak ikut save state.
+    #[cfg(test)]
+    pub(crate) fn clear_transient(&mut self) {
+        self.line_colors = [0; WIDTH];
+    }
+
+    /// Menulis keadaan PPU ke save state (ADR-0016). Framebuffer ikut,
+    /// supaya layar langsung benar setelah dimuat; `line_colors` tidak,
+    /// karena dibangun ulang setiap baris.
+    pub(crate) fn save(&self, w: &mut Writer) {
+        w.bytes(&self.vram);
+        w.bytes(&self.oam);
+        w.bytes(&self.framebuffer);
+        for value in [
+            self.lcdc,
+            self.stat_select,
+            self.scy,
+            self.scx,
+            self.ly,
+            self.lyc,
+            self.bgp,
+            self.obp0,
+            self.obp1,
+            self.wy,
+            self.wx,
+            self.window_line,
+        ] {
+            w.u8(value);
+        }
+        w.u16(self.dot);
+        w.bool(self.stat_line);
+        w.bool(self.frame_ready);
+    }
+
+    /// Membaca keadaan PPU dari save state.
+    pub(crate) fn load(&mut self, r: &mut Reader<'_>) -> Result<(), StateError> {
+        r.bytes_into(&mut self.vram)?;
+        r.bytes_into(&mut self.oam)?;
+        r.bytes_into(&mut self.framebuffer)?;
+        for field in [
+            &mut self.lcdc,
+            &mut self.stat_select,
+            &mut self.scy,
+            &mut self.scx,
+            &mut self.ly,
+            &mut self.lyc,
+            &mut self.bgp,
+            &mut self.obp0,
+            &mut self.obp1,
+            &mut self.wy,
+            &mut self.wx,
+            &mut self.window_line,
+        ] {
+            *field = r.u8()?;
+        }
+        self.dot = r.u16()?;
+        self.stat_line = r.bool()?;
+        self.frame_ready = r.bool()?;
+        Ok(())
     }
 }
 

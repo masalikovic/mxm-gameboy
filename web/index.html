@@ -6,6 +6,10 @@
   <meta name="theme-color" content="#0e0e0e">
   <title>mxm-gameboy</title>
   <link rel="stylesheet" href="style.css?v=__BUILD__">
+  <!-- PWA (M8, ADR-0017): bisa dipasang di layar utama dan dibuka offline. -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
   <!-- main.js memuat file .wasm hasil build gb-web (lihat tools/build-web.sh).
        Penanda versi di URL diganti versi build saat build (cache busting, ADR-0009). -->
   <script type="module" src="main.js?v=__BUILD__"></script>
@@ -78,10 +82,10 @@
     </label>
     <noscript><p class="status">Halaman ini butuh JavaScript untuk menjalankan emulator.</p></noscript>
     <p class="note">
-      Tahap M7: game <code>homebrew/jeruk</code> (C, GBDK) berjalan di
-      <code>gb-core</code> (Rust → WebAssembly) dengan suara dari APU 4 kanal dan
-      rekor yang tersimpan. ROM yang Anda muat dan simpanan game hanya ada di
-      perangkat ini dan tidak diunggah ke mana pun.
+      Tahap M8: debugger, save state, dan bisa dibuka tanpa internet setelah
+      kunjungan pertama. Game <code>homebrew/jeruk</code> (C, GBDK) berjalan di
+      <code>gb-core</code> (Rust → WebAssembly). ROM yang Anda muat dan simpanan
+      hanya ada di perangkat ini dan tidak diunggah ke mana pun.
       <a href="https://github.com/Masalikovic/mxm-gameboy">Kode sumber</a>
     </p>
   </main>

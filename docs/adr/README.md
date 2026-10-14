@@ -24,6 +24,7 @@ Lihat [ADR-0001](0001-catat-keputusan-dengan-adr.md) untuk alasannya.
 | [0014](0014-simpan-permainan-di-browser.md) | Simpan permainan di browser: localStorage, kunci dari isi ROM | Diterima |
 | [0015](0015-model-apu.md) | Model APU: sampel dibuat di core, diputar oleh adapter | Diterima |
 | [0016](0016-save-state.md) | Save state: format byte sendiri, berversi, dimuat semua-atau-tidak | Diterima |
+| [0017](0017-pwa-offline.md) | PWA offline: service worker dengan cache per versi build | Diterima |
 
 ## Template
 

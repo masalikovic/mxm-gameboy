@@ -38,9 +38,14 @@ Get-ChildItem homebrew/*/build/*.gb -ErrorAction SilentlyContinue | Copy-Item -D
 $build = (git rev-parse --short=12 HEAD 2>$null)
 if (-not $build) { $build = 'lokal' }
 if (git status --porcelain 2>$null) { $build = "$build-$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" }
-foreach ($file in 'dist/index.html', 'dist/main.js', 'dist/input.js', 'dist/save.js', 'dist/audio.js', 'dist/debugger.js') {
+foreach ($file in 'dist/index.html', 'dist/main.js', 'dist/input.js', 'dist/save.js', 'dist/audio.js', 'dist/debugger.js', 'dist/sw.js') {
     $text = [IO.File]::ReadAllText((Resolve-Path $file)) -replace '__BUILD__', $build
     [IO.File]::WriteAllText((Resolve-Path $file), $text)
 }
+
+# 5b. Service worker (ADR-0017): daftar ROM demo untuk mode offline.
+$roms = (Get-ChildItem dist/roms/*.gb -ErrorAction SilentlyContinue | ForEach-Object { '"' + $_.Name + '"' }) -join ','
+$sw = [IO.File]::ReadAllText((Resolve-Path 'dist/sw.js')) -replace '__ROMS__', "[$roms]"
+[IO.File]::WriteAllText((Resolve-Path 'dist/sw.js'), $sw)
 
 Write-Host "Selesai: dist/ siap (build $build). Coba lokal: cd dist; python -m http.server 8000"

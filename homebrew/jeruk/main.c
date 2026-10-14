@@ -8,6 +8,9 @@
  *   Start      jeda / lanjut
  *   Select     skor kembali ke 0
  *
+ * Bunyi (M7): "pling" naik saat jeruk diambil (kanal 1 + sweep), dan nada
+ * tinggi tambahan saat rekor baru (kanal 2).
+ *
  * Yang diuji dari emulator kita: joypad (register P1), sprite (robot dan
  * jeruk, robot dicerminkan saat menghadap kiri), window (bilah skor di
  * bawah), background (judul dan pagar), dan RAM cartridge MBC1 berbaterai
@@ -152,6 +155,37 @@ static void draw_score(void)
     set_win_tiles(0, 0, 20, 1, row);
 }
 
+/* Suara (APU). Register NRxx: lihat crates/gb-core/src/apu.rs. */
+static void sound_init(void)
+{
+    NR52_REG = 0x80; /* APU menyala */
+    NR50_REG = 0x77; /* volume kiri/kanan penuh */
+    NR51_REG = 0xFF; /* semua kanal ke kiri dan kanan */
+}
+
+/* Kanal 1: "pling" yang meluncur naik. Nada = 131072 / (2048 − f) Hz.
+ * Mulai f = 1798 (±524 Hz); setiap 1/128 detik sweep menambah f/64, jadi
+ * nada naik ±590 → 680 → 790 → … Hz sampai f melewati 2047 dan kanal
+ * berhenti sendiri (±60 ms). Makin dekat 2048, nada makin cepat melonjak:
+ * titik awal yang terlalu tinggi membuat bunyi langsung mencicit. */
+static void sound_pick(void)
+{
+    NR10_REG = 0x16; /* sweep: periode 1, naik, geser 6 */
+    NR11_REG = 0x80; /* duty 50 % */
+    NR12_REG = 0xF2; /* volume 15, turun, periode 2 */
+    NR13_REG = 0x06; /* frekuensi 0x706 = 1798 */
+    NR14_REG = 0x87; /* trigger + 3 bit atas frekuensi */
+}
+
+/* Kanal 2: nada lebih tinggi (±2 kHz) untuk rekor baru. */
+static void sound_record(void)
+{
+    NR21_REG = 0x40; /* duty 25 % */
+    NR22_REG = 0xA3; /* volume 10, turun, periode 3 */
+    NR23_REG = 0xC1; /* frekuensi 0x7C1 = 1985 → ±2 kHz */
+    NR24_REG = 0x87;
+}
+
 static void place_fruit(void)
 {
     do {
@@ -182,6 +216,7 @@ void main(void)
     move_sprite(PLAYER, px + 8, py + 16);
     move_sprite(FRUIT, ox + 8, oy + 16);
 
+    sound_init();
     load_best();
     draw_score();
     move_win(7, 136);
@@ -230,9 +265,11 @@ void main(void)
 
         if (distance(px, ox) < 8 && distance(py, oy) < 8) {
             score++;
+            sound_pick();
             if (score > best) {
                 best = score;
                 save_best();
+                sound_record();
             }
             place_fruit();
             draw_score();

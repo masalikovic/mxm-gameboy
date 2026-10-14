@@ -38,7 +38,7 @@ Get-ChildItem homebrew/*/build/*.gb -ErrorAction SilentlyContinue | Copy-Item -D
 $build = (git rev-parse --short=12 HEAD 2>$null)
 if (-not $build) { $build = 'lokal' }
 if (git status --porcelain 2>$null) { $build = "$build-$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" }
-foreach ($file in 'dist/index.html', 'dist/main.js', 'dist/input.js', 'dist/save.js') {
+foreach ($file in 'dist/index.html', 'dist/main.js', 'dist/input.js', 'dist/save.js', 'dist/audio.js') {
     $text = [IO.File]::ReadAllText((Resolve-Path $file)) -replace '__BUILD__', $build
     [IO.File]::WriteAllText((Resolve-Path $file), $text)
 }

@@ -38,6 +38,8 @@
         <button type="button" class="pill" data-button="64">SELECT</button>
         <button type="button" class="pill" data-button="128">START</button>
       </div>
+      <!-- Bukan tombol Game Boy (tanpa data-button): menyalakan suara browser. -->
+      <button type="button" id="sound" class="pill sound" aria-pressed="false">SUARA: MATI</button>
     </section>
     <p class="keys">Keyboard: panah/WASD · X = A · Z = B · Enter = Start · Shift = Select</p>
     <p id="status" class="status" role="status">Menyiapkan WebAssembly</p>
@@ -60,9 +62,9 @@
     </label>
     <noscript><p class="status">Halaman ini butuh JavaScript untuk menjalankan emulator.</p></noscript>
     <p class="note">
-      Tahap M6: game <code>homebrew/jeruk</code> (C, GBDK) berjalan di
-      <code>gb-core</code> (Rust → WebAssembly) dengan cartridge MBC1 berbaterai:
-      rekor skor tersimpan. ROM yang Anda muat dan simpanan game hanya ada di
+      Tahap M7: game <code>homebrew/jeruk</code> (C, GBDK) berjalan di
+      <code>gb-core</code> (Rust → WebAssembly) dengan suara dari APU 4 kanal dan
+      rekor yang tersimpan. ROM yang Anda muat dan simpanan game hanya ada di
       perangkat ini dan tidak diunggah ke mana pun.
       <a href="https://github.com/Masalikovic/mxm-gameboy">Kode sumber</a>
     </p>

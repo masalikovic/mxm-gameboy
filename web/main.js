@@ -9,6 +9,7 @@
 import init, { coreVersion, Emulator } from './pkg/gb_web.js?v=__BUILD__';
 import { attachInput } from './input.js?v=__BUILD__';
 import { deleteSave, loadSave, saveKey, storeSave } from './save.js?v=__BUILD__';
+import { createAudio } from './audio.js?v=__BUILD__';
 
 const wasmUrl = new URL('./pkg/gb_web_bg.wasm?v=__BUILD__', import.meta.url);
 // ROM demo: dibuild dari homebrew/<nama>/main.c di CI (ADR-0006).
@@ -37,6 +38,12 @@ const demo = document.getElementById('demo');
 const saveLine = document.getElementById('save');
 const saveText = document.getElementById('save-text');
 const saveDelete = document.getElementById('save-delete');
+const soundButton = document.getElementById('sound');
+
+// Suara (M7). Mati saat halaman dibuka: browser hanya mengizinkan bunyi
+// setelah pengguna menyentuh halaman. Pilihan "nyala" diingat.
+const audio = createAudio();
+const SOUND_PREF = 'mxm-gameboy:suara';
 
 // Sentuhan + keyboard → bit tombol → gb-core (lewat gb-web).
 const input = attachInput({
@@ -62,6 +69,7 @@ let running = false;
 let lastTime = 0;
 let backlog = 0;
 let emulationMs = 0;
+let soundMs = 0;
 let framesSinceReport = 0;
 
 // Simpan permainan (M6). Hanya untuk cartridge berbaterai.
@@ -119,7 +127,13 @@ function tick(now) {
       stop(`Emulator berhenti: ${error}`);
       return;
     }
-    emulationMs = emulationMs * 0.9 + (performance.now() - start) * 0.1;
+    const emulated = performance.now();
+    emulationMs = emulationMs * 0.9 + (emulated - start) * 0.1;
+    if (audio.enabled) {
+      // Diukur terpisah: biaya menyerahkan sampel ke Web Audio.
+      audio.push(emulator.takeSamples());
+      soundMs = soundMs * 0.9 + (performance.now() - emulated) * 0.1;
+    }
     backlog -= FRAME_MS;
     ran++;
   }
@@ -130,7 +144,8 @@ function tick(now) {
     framesSinceReport += ran;
     if (framesSinceReport >= 30) {
       framesSinceReport = 0;
-      perf.textContent = `emulasi ${emulationMs.toFixed(1)} ms/frame · target < 8 ms`;
+      const sound = audio.enabled ? ` · suara ${soundMs.toFixed(1)} ms` : '';
+      perf.textContent = `emulasi ${emulationMs.toFixed(1)} ms/frame${sound} · target < 8 ms`;
     }
   }
   requestAnimationFrame(tick);
@@ -157,6 +172,7 @@ function start(bytes, name) {
     return;
   }
   emulator.setButtons(input.mask); // tombol yang sudah ditahan sebelum ROM dimuat
+  emulator.setSampleRate(audio.rate); // 0 kalau suara mati: core tidak membuat sampel
   current = { bytes, name };
   if (emulator.hasBattery()) {
     key = saveKey(bytes, emulator.title());
@@ -188,6 +204,53 @@ async function startDemo(file) {
     stop('ROM demo belum ada di build ini. Muat file .gb di bawah.');
   }
 }
+
+function showSound() {
+  soundButton.textContent = audio.enabled ? 'SUARA: NYALA' : 'SUARA: MATI';
+  soundButton.setAttribute('aria-pressed', String(audio.enabled));
+}
+
+async function setSound(on) {
+  if (on) {
+    try {
+      await audio.enable();
+    } catch (error) {
+      status.textContent = `Suara tidak bisa dinyalakan: ${error.message ?? error}`;
+      return;
+    }
+  } else {
+    audio.disable();
+  }
+  emulator?.setSampleRate(audio.rate);
+  try {
+    localStorage.setItem(SOUND_PREF, on ? '1' : '0');
+  } catch {
+    // pilihan tidak diingat; suara tetap jalan
+  }
+  showSound();
+}
+
+soundButton.addEventListener('click', () => {
+  setSound(!audio.enabled);
+  soundButton.blur(); // Enter berikutnya untuk Start, bukan tombol ini
+});
+
+// Pilihan "nyala" dari kunjungan sebelumnya: dinyalakan pada sentuhan pertama.
+try {
+  if (localStorage.getItem(SOUND_PREF) === '1') {
+    const resume = (event) => {
+      if (event.target === soundButton) return; // tombol itu sendiri yang mengurus
+      window.removeEventListener('pointerdown', resume, true);
+      window.removeEventListener('keydown', resume, true);
+      if (!audio.enabled) setSound(true);
+    };
+    window.addEventListener('pointerdown', resume, true);
+    window.addEventListener('keydown', resume, true);
+  }
+} catch {
+  // tanpa localStorage: suara mulai mati, seperti biasa
+}
+showSound();
 
 saveDelete.addEventListener('click', () => {
   if (key === null || !current) return;

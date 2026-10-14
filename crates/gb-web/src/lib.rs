@@ -99,6 +99,27 @@ impl Emulator {
         self.gb.bus.cartridge_mut().take_ram_dirty()
     }
 
+    /// Laju sampel suara (biasanya `AudioContext.sampleRate`, mis. 48 000).
+    /// 0 = suara mati: core tidak membuat sampel sama sekali (hemat CPU HP).
+    #[wasm_bindgen(js_name = setSampleRate)]
+    pub fn set_sample_rate(&mut self, rate: u32) {
+        self.gb.set_sample_rate(rate);
+    }
+
+    /// Sampel suara sejak panggilan terakhir, nilai −1.0 … +1.0, **terpisah
+    /// per sisi**: semua sampel kiri dulu, lalu semua sampel kanan. Menjadi
+    /// `Float32Array` di JS, yang bisa langsung disalin per kanal dengan
+    /// `AudioBuffer.copyToChannel` — jauh lebih cepat daripada memisahkan
+    /// kiri/kanan satu per satu di JavaScript.
+    #[wasm_bindgen(js_name = takeSamples)]
+    pub fn take_samples(&mut self) -> Vec<f32> {
+        let interleaved = self.gb.take_samples();
+        let mut planar = Vec::with_capacity(interleaved.len());
+        planar.extend(interleaved.iter().step_by(2));
+        planar.extend(interleaved.iter().skip(1).step_by(2));
+        planar
+    }
+
     /// Salinan layar: 160 × 144 byte, tingkat kegelapan 0 (terang) – 3 (gelap).
     #[must_use]
     pub fn framebuffer(&self) -> Vec<u8> {
@@ -178,6 +199,40 @@ mod tests {
         fresh.load_ram(&saved);
         assert_eq!(fresh.ram()[0], 0x42);
         assert!(!fresh.take_ram_dirty(), "memuat simpanan bukan perubahan");
+    }
+
+    #[test]
+    fn sound_samples_follow_the_sample_rate() {
+        let mut rom = vec![0u8; 0x8000];
+        rom[0x100..0x102].copy_from_slice(&[0x18, 0xFE]);
+        let mut emulator = Emulator::new(&rom).expect("ROM cukup besar");
+        emulator.run_frame().expect("tidak ada opcode yang hilang");
+        assert!(emulator.take_samples().is_empty(), "bawaan: suara mati");
+        emulator.set_sample_rate(48_000);
+        emulator.run_frame().expect("tidak ada opcode yang hilang");
+        // Satu frame ±16,74 ms × 48 kHz ≈ 803 sampel × 2 kanal.
+        let samples = emulator.take_samples().len();
+        assert!((1500..1700).contains(&samples), "{samples}");
+    }
+
+    #[test]
+    fn samples_are_handed_over_left_then_right() {
+        // Kanal 2 hanya ke kiri (NR51 = 0x20), berbunyi terus:
+        //   NR52=0x80, NR51=0x20, NR22=0xF0, NR21=0x80, NR24=0x87 (trigger)
+        let program = [
+            0x3E, 0x80, 0xE0, 0x26, 0x3E, 0x20, 0xE0, 0x25, 0x3E, 0xF0, 0xE0, 0x17, 0x3E, 0x80,
+            0xE0, 0x16, 0x3E, 0x87, 0xE0, 0x19, 0x18, 0xFE,
+        ];
+        let mut rom = vec![0u8; 0x8000];
+        rom[0x100..0x100 + program.len()].copy_from_slice(&program);
+        let mut emulator = Emulator::new(&rom).expect("ROM cukup besar");
+        emulator.set_sample_rate(48_000);
+        emulator.run_frame().expect("tidak ada opcode yang hilang");
+        let samples = emulator.take_samples();
+        let (left, right) = samples.split_at(samples.len() / 2);
+        let energy = |side: &[f32]| side.iter().map(|s| s.abs()).sum::<f32>();
+        assert!(energy(left) > 1.0, "paruh pertama = kiri, berbunyi");
+        assert!(energy(right) < 1e-6, "paruh kedua = kanan, sunyi");
     }
 
     #[test]

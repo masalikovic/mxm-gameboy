@@ -1,0 +1,8 @@
+# Golden test suara (ADR-0015): hash FNV-1a 64-bit sampel 16-bit stereo 48 kHz.
+# Format: <frames> <hash> [tombol yang ditahan]. Diperiksa sebelum dikunci
+# (rekaman WAV, nada dari zero-crossing):
+#   tanpa tombol: sunyi total (tidak ada jeruk diambil)
+#   right:        "pling" naik ±550 → 1600 Hz (kanal 1 + sweep) lalu nada
+#                 rekor ±2080 Hz (kanal 2), mulai detik ke-0,96
+120 10e252cf324d4945
+120 c8531e16ead5ce15 right

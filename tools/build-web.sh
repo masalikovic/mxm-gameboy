@@ -49,7 +49,7 @@ build="$(git rev-parse --short=12 HEAD 2>/dev/null || echo lokal)"
 if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
   build="${build}-$(date +%s)"
 fi
-sed -i.bak "s/__BUILD__/${build}/g" dist/index.html dist/main.js dist/input.js dist/save.js
+sed -i.bak "s/__BUILD__/${build}/g" dist/index.html dist/main.js dist/input.js dist/save.js dist/audio.js
 rm -f dist/*.bak
 
 echo "Selesai: dist/ siap (build ${build}). Coba lokal: cd dist && python3 -m http.server 8000"

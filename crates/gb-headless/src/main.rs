@@ -4,7 +4,9 @@
 //! gb-headless                        mencetak sapaan (smoke test M0)
 //! gb-headless <rom.gb> [maks-siklus] menjalankan ROM, menilai keluaran serial
 //! gb-headless <rom.gb> --frames N [--hold right,a] [--screenshot layar.pgm]
+//!              [--audio] [--wav suara.wav]
 //!                                    menjalankan N frame, mencetak hash layar
+//!                                    (atau hash suara dengan --audio)
 //! ```
 //!
 //! `--hold` menahan tombol selama semua frame (right, left, up, down, a, b,
@@ -60,6 +62,9 @@ fn blargg_memory_result(ram: &[u8]) -> Option<(bool, String)> {
     Some((*status == 0, text))
 }
 
+/// Laju sampel suara untuk `--audio` dan `--wav` (tetap, supaya hash stabil).
+const AUDIO_RATE: u32 = 48_000;
+
 /// Batas bawaan: ±60 detik waktu Game Boy (4.194.304 siklus per detik).
 const DEFAULT_MAX_CYCLES: u64 = 60 * 4_194_304;
 
@@ -100,17 +105,24 @@ fn main() -> ExitCode {
 /// simpan gambar PGM. Hash dipakai golden test (ADR-0005): layar yang sama
 /// persis selalu menghasilkan hash yang sama, karena core deterministik.
 fn screen_mode(path: &str, args: &[String]) -> ExitCode {
-    const USAGE: &str =
-        "Pakai: gb-headless <rom.gb> --frames N [--hold right,a] [--screenshot layar.pgm]";
+    const USAGE: &str = "Pakai: gb-headless <rom.gb> --frames N [--hold right,a] \
+                         [--screenshot layar.pgm] [--audio] [--wav suara.wav]";
     let Some(Ok(frames)) = args.first().map(|s| s.parse::<u32>()) else {
         eprintln!("{USAGE}");
         return ExitCode::from(2);
     };
     let mut screenshot = None;
+    let mut wav = None;
+    let mut audio = false;
     let mut held = Buttons(0);
     let mut rest = args[1..].iter();
     while let Some(flag) = rest.next() {
+        if flag == "--audio" {
+            audio = true;
+            continue;
+        }
         match (flag.as_str(), rest.next()) {
+            ("--wav", Some(file)) => wav = Some(file),
             ("--screenshot", Some(file)) => screenshot = Some(file),
             ("--hold", Some(names)) => match parse_buttons(names) {
                 Ok(buttons) => held = buttons,
@@ -140,13 +152,33 @@ fn screen_mode(path: &str, args: &[String]) -> ExitCode {
         }
     };
     gb.set_buttons(held);
+    let record = audio || wav.is_some();
+    if record {
+        gb.set_sample_rate(AUDIO_RATE);
+    }
+    // Sampel dibulatkan ke 16-bit: itu yang disimpan ke WAV dan di-hash.
+    let mut pcm: Vec<i16> = Vec::new();
     for _ in 0..frames {
         if let Err(error) = gb.run_frame() {
             eprintln!("Berhenti: {error:?}");
             return ExitCode::from(2);
         }
+        if record {
+            pcm.extend(gb.take_samples().into_iter().map(to_i16));
+        }
     }
-    println!("{:016x}", fnv1a64(gb.framebuffer()));
+    if audio {
+        let bytes: Vec<u8> = pcm.iter().flat_map(|s| s.to_le_bytes()).collect();
+        println!("{:016x}", fnv1a64(&bytes));
+    } else {
+        println!("{:016x}", fnv1a64(gb.framebuffer()));
+    }
+    if let Some(file) = wav
+        && let Err(error) = std::fs::write(file, to_wav(&pcm))
+    {
+        eprintln!("Gagal menulis {file}: {error}");
+        return ExitCode::from(2);
+    }
     if let Some(file) = screenshot
         && let Err(error) = std::fs::write(file, to_pgm(gb.framebuffer()))
     {
@@ -180,6 +212,37 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
     })
+}
+
+/// Sampel −1.0 … +1.0 → bilangan bulat 16-bit.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "nilai sudah dijepit ke −32767 … 32767 sebelum diubah"
+)]
+fn to_i16(sample: f32) -> i16 {
+    (sample.clamp(-1.0, 1.0) * 32767.0).round() as i16
+}
+
+/// Sampel 16-bit stereo → berkas WAV (format PCM paling sederhana).
+fn to_wav(pcm: &[i16]) -> Vec<u8> {
+    let data_len = u32::try_from(pcm.len() * 2).unwrap_or(u32::MAX);
+    let mut wav = Vec::with_capacity(44 + pcm.len() * 2);
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36 + data_len).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes()); // panjang bagian fmt
+    wav.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    wav.extend_from_slice(&2u16.to_le_bytes()); // stereo
+    wav.extend_from_slice(&AUDIO_RATE.to_le_bytes());
+    wav.extend_from_slice(&(AUDIO_RATE * 4).to_le_bytes()); // byte per detik
+    wav.extend_from_slice(&4u16.to_le_bytes()); // byte per sampel stereo
+    wav.extend_from_slice(&16u16.to_le_bytes()); // bit per sampel
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&data_len.to_le_bytes());
+    for sample in pcm {
+        wav.extend_from_slice(&sample.to_le_bytes());
+    }
+    wav
 }
 
 /// Framebuffer → gambar PGM (format abu-abu paling sederhana).
@@ -245,7 +308,17 @@ fn run(mut gb: GameBoy, max_cycles: u64) -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use super::{blargg_memory_result, parse_buttons};
+    use super::{blargg_memory_result, parse_buttons, to_i16, to_wav};
+
+    #[test]
+    fn samples_become_16_bit_wav() {
+        assert_eq!(to_i16(1.0), 32767);
+        assert_eq!(to_i16(-2.0), -32767, "dijepit");
+        let wav = to_wav(&[1, -1]);
+        assert_eq!(&wav[..4], b"RIFF");
+        assert_eq!(wav.len(), 44 + 4);
+        assert_eq!(&wav[44..], &[1, 0, 0xFF, 0xFF]);
+    }
 
     #[test]
     fn blargg_memory_protocol() {

@@ -36,26 +36,37 @@ for dir in homebrew/*/; do
     echo "== ${name}: GAGAL" >&2
     problems=$((problems + 1))
   fi
-  # Golden test layar (opsional): homebrew/<nama>/screen.hash, satu tes per
-  # baris: "<frames> <hash> [tombol]". Tombol (mis. "right,a") ditahan selama
-  # semua frame, supaya input juga ikut diuji tanpa manusia.
-  if [[ -f "${dir}screen.hash" ]]; then
+  # Golden test (opsional), satu tes per baris: "<frames> <hash> [tombol]".
+  # Tombol (mis. "right,a") ditahan selama semua frame, supaya input ikut diuji.
+  #   screen.hash → hash layar setelah N frame;
+  #   sound.hash  → hash suara (sampel 16-bit, 48 kHz) selama N frame.
+  for kind in screen sound; do
+    file="${dir}${kind}.hash"
+    [[ -f "${file}" ]] || continue
     case_no=0
     while read -r frames expected buttons; do
       case_no=$((case_no + 1))
-      hold=()
-      [[ -n "${buttons}" ]] && hold=(--hold "${buttons}")
-      shot="${dir}build/${name}-${case_no}.pgm"
-      actual="$("${headless}" "${rom}" --frames "${frames}" "${hold[@]}" --screenshot "${shot}")"
+      extra=()
+      [[ -n "${buttons}" ]] && extra+=(--hold "${buttons}")
+      if [[ "${kind}" == screen ]]; then
+        out="${dir}build/${name}-${case_no}.pgm"
+        extra+=(--screenshot "${out}")
+        what="layar"
+      else
+        out="${dir}build/${name}-${case_no}.wav"
+        extra+=(--audio --wav "${out}")
+        what="suara"
+      fi
+      actual="$("${headless}" "${rom}" --frames "${frames}" "${extra[@]}")"
       label="${frames} frame${buttons:+, tahan ${buttons}}"
       if [[ "${actual}" == "${expected}" ]]; then
-        echo "== ${name}: layar cocok (${label}, ${actual})"
+        echo "== ${name}: ${what} cocok (${label}, ${actual})"
       else
-        echo "== ${name}: LAYAR BERBEDA (${label}): ${actual}, seharusnya ${expected} (lihat ${shot})" >&2
+        echo "== ${name}: ${what^^} BERBEDA (${label}): ${actual}, seharusnya ${expected} (lihat ${out})" >&2
         problems=$((problems + 1))
       fi
-    done < <(grep -v '^#' "${dir}screen.hash")
-  fi
+    done < <(grep -v '^#' "${file}")
+  done
 done
 
 if (( problems > 0 )); then

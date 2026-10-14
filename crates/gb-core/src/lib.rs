@@ -16,6 +16,7 @@
 //! - [`bus`]: cara CPU membaca dan menulis memori (ADR-0010).
 //! - [`cartridge`]: header, ROM, RAM cartridge, dan MBC1/2/3/5 (ADR-0013).
 //! - [`cpu`]: CPU SM83, dibangun instruksi demi instruksi di M1–M2.
+//! - [`disasm`]: byte opcode → teks instruksi untuk debugger (M8).
 //! - [`joypad`]: 8 tombol dan register P1.
 //! - [`machine`]: [`machine::GameBoy`], yaitu CPU + bus memori lengkap.
 //! - [`ppu`]: chip layar: mode LCD, `LY`, background, framebuffer 160×144.
@@ -30,6 +31,7 @@ pub mod apu;
 pub mod bus;
 pub mod cartridge;
 pub mod cpu;
+pub mod disasm;
 pub mod joypad;
 pub mod machine;
 pub mod ppu;

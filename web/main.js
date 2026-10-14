@@ -10,6 +10,7 @@ import init, { coreVersion, Emulator } from './pkg/gb_web.js?v=__BUILD__';
 import { attachInput } from './input.js?v=__BUILD__';
 import { deleteSave, loadSave, saveKey, storeSave } from './save.js?v=__BUILD__';
 import { createAudio } from './audio.js?v=__BUILD__';
+import { createDebugger } from './debugger.js?v=__BUILD__';
 
 const wasmUrl = new URL('./pkg/gb_web_bg.wasm?v=__BUILD__', import.meta.url);
 // ROM demo: dibuild dari homebrew/<nama>/main.c di CI (ADR-0006).
@@ -65,7 +66,8 @@ function readPalette() {
 const palette = readPalette();
 
 let emulator = null;
-let running = false;
+let running = false; // ROM terpasang dan tidak ada error
+let paused = false; // dijeda dari debugger
 let lastTime = 0;
 let backlog = 0;
 let emulationMs = 0;
@@ -116,6 +118,11 @@ function draw() {
  */
 function tick(now) {
   if (!running) return;
+  if (paused) {
+    lastTime = now; // waktu jeda tidak "dikejar" saat dilanjutkan
+    requestAnimationFrame(tick);
+    return;
+  }
   backlog += Math.min(now - lastTime, 100); // tab yang tertidur tidak "mengejar"
   lastTime = now;
   let ran = 0;
@@ -142,6 +149,7 @@ function tick(now) {
     if (savePending && now - lastSave >= SAVE_EVERY_MS) flushSave();
     draw();
     framesSinceReport += ran;
+    if (framesSinceReport % 15 < ran) debug.render(emulator, paused);
     if (framesSinceReport >= 30) {
       framesSinceReport = 0;
       const sound = audio.enabled ? ` · suara ${soundMs.toFixed(1)} ms` : '';
@@ -184,6 +192,8 @@ function start(bytes, name) {
   }
   screenText.hidden = true;
   status.textContent = `ROM: ${name}`;
+  paused = false;
+  debug.render(emulator, paused);
   running = true;
   backlog = 0;
   lastTime = performance.now();
@@ -203,6 +213,49 @@ async function startDemo(file) {
   } else {
     stop('ROM demo belum ada di build ini. Muat file .gb di bawah.');
   }
+}
+
+// Debugger (M8): jeda, satu instruksi, satu frame.
+const debug = createDebugger({
+  panel: document.getElementById('debugger'),
+  registersView: document.getElementById('dbg-registers'),
+  codeView: document.getElementById('dbg-code'),
+  buttons: {
+    pause: document.getElementById('dbg-pause'),
+    step: document.getElementById('dbg-step'),
+    frame: document.getElementById('dbg-frame'),
+  },
+  actions: {
+    togglePause() {
+      if (!emulator) return;
+      paused = !paused;
+      if (!paused) emulator.takeSamples(); // sisa sampel dari langkah manual dibuang
+      status.textContent = paused ? 'Dijeda (debugger)' : `ROM: ${current?.name ?? ''}`;
+      debug.render(emulator, paused);
+    },
+    step() {
+      debugRun(() => emulator.stepInstruction());
+    },
+    frame() {
+      debugRun(() => emulator.runFrame());
+    },
+    refresh() {
+      debug.render(emulator, paused);
+    },
+  },
+});
+
+/** Satu aksi debugger saat dijeda, lalu layar dan panel digambar ulang. */
+function debugRun(action) {
+  if (!emulator || !paused) return;
+  try {
+    action();
+  } catch (error) {
+    stop(`Emulator berhenti: ${error}`);
+    return;
+  }
+  draw();
+  debug.render(emulator, paused);
 }
 
 function showSound() {

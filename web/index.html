@@ -49,6 +49,17 @@
       <span id="save-text"></span>
       <button type="button" id="save-delete" class="link">Hapus simpanan</button>
     </p>
+    <!-- Debugger (M8): tertutup secara bawaan; isinya dihitung hanya saat dibuka. -->
+    <details id="debugger" class="debugger">
+      <summary>Debugger</summary>
+      <div class="debug-buttons">
+        <button type="button" id="dbg-pause" class="pill">JEDA</button>
+        <button type="button" id="dbg-step" class="pill" disabled>LANGKAH</button>
+        <button type="button" id="dbg-frame" class="pill" disabled>1 FRAME</button>
+      </div>
+      <pre id="dbg-registers" class="debug-view" aria-label="Register CPU"></pre>
+      <pre id="dbg-code" class="debug-view" aria-label="Instruksi berikutnya"></pre>
+    </details>
     <label class="demo-picker">Demo
       <select id="demo">
         <option value="jeruk.gb">Kejar Jeruk (game)</option>

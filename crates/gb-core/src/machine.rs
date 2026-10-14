@@ -294,6 +294,14 @@ impl GameBoy {
         Ok(())
     }
 
+    /// Instruksi di `address`, untuk debugger. Byte dibaca lewat bus biasa;
+    /// itu aman karena tidak ada register di bus kita yang berubah saat
+    /// *dibaca* (hanya saat ditulis).
+    pub fn disassemble_at(&mut self, address: u16) -> crate::disasm::Instruction {
+        let bytes = [0u16, 1, 2].map(|offset| self.bus.read(address.wrapping_add(offset)));
+        crate::disasm::disassemble(|a| bytes[usize::from(a.wrapping_sub(address)) % 3], address)
+    }
+
     /// Tombol yang sedang ditekan, dari adapter (sentuh, keyboard, tombol fisik).
     pub fn set_buttons(&mut self, buttons: Buttons) {
         self.bus.set_buttons(buttons);

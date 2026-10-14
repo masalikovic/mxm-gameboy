@@ -41,6 +41,9 @@ Detail pemasangan alat untuk Windows: [docs/setup-windows.md](docs/setup-windows
 
 ## Status
 
+**Semua tahap M0–M8 selesai (2026-10-14).** Ringkasan perjalanan, angka akhir, dan
+pelajaran ada di [penutup proyek](docs/jurnal/m8.md#penutup-proyek-m0--m8).
+
 | Tahap | Isi | Status |
 |---|---|---|
 | M0 | Visi, ADR, setup, kerangka repo, CI, GitHub Pages | ✅ selesai ([jurnal](docs/jurnal/m0.md)) |
@@ -51,7 +54,7 @@ Detail pemasangan alat untuk Windows: [docs/setup-windows.md](docs/setup-windows
 | M5 | Sprite, window, tombol sentuh & keyboard; game Kejar Jeruk dimainkan di HP | ✅ selesai ([jurnal](docs/jurnal/m5.md)) |
 | M6 | Cartridge MBC1/2/3/5 (43 ROM uji); rekor Kejar Jeruk tersimpan di HP | ✅ selesai ([jurnal](docs/jurnal/m6.md)) |
 | M7 | Suara: APU 4 kanal (Blargg dmg_sound 9/12) via Web Audio; Kejar Jeruk berbunyi di HP | ✅ selesai ([jurnal](docs/jurnal/m7.md)) |
-| M8 | Debugger, save state, PWA offline | belum mulai |
+| M8 | Debugger, save state (60 ROM uji), PWA; dibuka offline di HP | ✅ selesai ([jurnal + penutup proyek](docs/jurnal/m8.md)) |
 
 ## Legal
 
